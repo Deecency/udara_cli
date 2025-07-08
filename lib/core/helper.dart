@@ -353,8 +353,8 @@ class Helper {
     print('✅ Cleanup complete.');
   }
 
-  Future<void> ensureSplashConfig() async {
-    print('🔎 Ensuring splash_master setup...');
+  Future<void> ensureConfig() async {
+    print('🔎 Ensuring all necessary configurations are present...');
     final pubspecFile = File(p.join(command.projectDir, 'pubspec.yaml'));
     if (!await pubspecFile.exists()) {
       throw BuildException('Cannot find pubspec.yaml');
@@ -363,56 +363,76 @@ class Helper {
     var content = await pubspecFile.readAsString();
     var pubspecYaml = loadYaml(content);
 
-    // Step 1: Check for the dependency
-    if (pubspecYaml['dependencies']?['splash_master'] == null) {
-      print('⚠️ `splash_master` dependency not found. Adding it now...');
-      await command.runShell('flutter pub add splash_master');
-      print('✅ Successfully added `splash_master` to dependencies.');
-      content = await pubspecFile.readAsString();
-      pubspecYaml = loadYaml(content);
-    }
+    pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
+    pubspecYaml = await _ensureDependency(
+        'flutter_launcher_icons', pubspecFile, pubspecYaml);
+    pubspecYaml =
+        await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
 
-    // Step 2: Check for the configuration and add a template if missing
-    if (pubspecYaml['splash_master'] == null) {
-      print('⚠️ `splash_master` configuration not found. Adding a template...');
+    content = await pubspecFile.readAsString();
 
-      const splashTemplate = '''
+    var configAdded = false;
+    var newContent = content;
+
+    if (pubspecYaml['flutter_launcher_icons'] == null) {
+      print(
+          '⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
+      configAdded = true;
+      newContent += '''
 
   # ------------------ ADDED BY UDARA_CLI ------------------
-  # TODO: Please fill in the image path and other details for your splash screen.
+  # TODO: Please fill in the image_path for your app icon.
+  flutter_launcher_icons:
+    image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+    android: true
+    ios: true
+    remove_alpha_ios: true
+  # ---------------------------------------------------------
+  ''';
+    }
+
+    if (pubspecYaml['splash_master'] == null) {
+      print('⚠️ `splash_master` configuration not found. Adding a template...');
+      configAdded = true;
+      newContent += '''
+
+  # ------------------ ADDED BY UDARA_CLI ------------------
+  # TODO: Please fill in the image path for your splash screen.
   splash_master:
     color: "#FFFFFF"
     image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
     ios_content_mode: "center"
     android_gravity: "center"
+    ios_background_content_mode: "scaleToFill"
   # ---------------------------------------------------------
   ''';
+    }
 
-      await pubspecFile.writeAsString('$content$splashTemplate');
-
+    if (configAdded) {
+      await pubspecFile.writeAsString(newContent);
       throw BuildException(
-        'A `splash_master` template has been added to your pubspec.yaml.',
+        'One or more configuration templates have been added to your pubspec.yaml.',
         fix:
-            'Please fill in the required values (especially the image path) and run the build again.',
+            'Please fill in the required values (especially image paths) and run the build again.',
       );
     }
 
-    final imagePath = pubspecYaml['splash_master']['image'];
-    if (imagePath == null || imagePath.isEmpty) {
-      throw BuildException(
-        'The `image` path is missing in your `splash_master` configuration.',
-        fix: 'Specify the path to your splash screen image in pubspec.yaml.',
-      );
-    }
+    print('✅ All necessary configurations are present.');
+  }
 
-    final imageFile = File(p.join(command.projectDir, imagePath));
-    if (!await imageFile.exists()) {
-      throw BuildException(
-        'Splash screen image not found at `$imagePath`.',
-        fix: 'Make sure the image file exists at the specified path.',
-      );
-    }
+  /// Helper to check for a dependency and add it if missing.
+  Future<YamlMap> _ensureDependency(
+      String packageName, File pubspecFile, YamlMap pubspecYaml) async {
+    final dependencies = pubspecYaml['dev_dependencies'] as YamlMap?;
+    if (dependencies?[packageName] == null) {
+      print('⚠️ `$packageName` dependency not found. Adding it now...');
+      // Using 'flutter pub add --dev' is a safe practice for build tools
+      await command.runShell('flutter pub add --dev $packageName');
 
-    print('✅ Splash configuration is set up correctly.');
+      // Reread and parse the file to reflect the change
+      final content = await pubspecFile.readAsString();
+      return loadYaml(content) as YamlMap;
+    }
+    return pubspecYaml;
   }
 }

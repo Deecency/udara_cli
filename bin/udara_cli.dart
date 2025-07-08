@@ -1,13 +1,17 @@
-// tools/udara_cli/bin/udara_cli.dart
-import 'dart:io';
-
 import 'package:udara_cli/core/core.dart';
 import 'package:udara_cli/scripts.dart';
 
 Future<void> main(List<String> arguments) async {
   final runner = CommandRunner<void>(
     'udara_cli',
-    'A self-contained tool to manage and build Flutter projects for different clients.',
+    '''A self-contained tool to create a new whitelabel of the current Flutter project.
+
+  Prerequisites:
+    1. A 'clients' directory must exist at the project root.
+    2. Each client must have its own sub-directory (e.g., 'clients/client_a/').
+    3. Each client directory needs an environment file (.env or .env_test).
+    4. The .env file must define BUNDLE_ID, APP_NAME_PROD, APP_ICON_PATH, and ASSETS_PATH.
+  ''',
   )
     ..addCommand(BuildCommand())
     ..addCommand(CleanCommand())

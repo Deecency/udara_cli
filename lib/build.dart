@@ -36,7 +36,7 @@ class BuildCommand extends UdaraCommand {
 
   @override
   final String description =
-      'Builds the Flutter project for a specific client.';
+      'Builds a whitelabel of the Flutter project for a specific client.  eg udara_cli build --client clientA --platform android --test';
 
   File? pubspecBackup;
   Directory? copiedAssetsDir;
@@ -95,6 +95,8 @@ class BuildCommand extends UdaraCommand {
 
       await runShell('flutter pub get');
 
+      await helper.ensureConfig();
+
       await runShell(
         'dart run rename setBundleId --targets ios,android --value "$bundleId"',
       );
@@ -104,8 +106,6 @@ class BuildCommand extends UdaraCommand {
       );
 
       await runShell('dart run flutter_launcher_icons');
-
-      await helper.ensureSplashConfig();
 
       await runShell('dart run splash_master create');
 
