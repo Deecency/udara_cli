@@ -78,33 +78,25 @@ class BuildCommand extends UdaraCommand {
       this.appNameForCleanup = appName;
 
       final clientAssetsPath = envVars['ASSETS_PATH']!;
-
-      // PHASE 2: FILE & CONFIGURATION MANIPULATION
-
       print('\n--- ✏️ Phase 2: Project Configuration ---');
+
+      await helper.ensureConfig();
 
       await helper.backupAndModifyPubspec(clientAssetsPath, appIconPath);
 
+      await helper.handleClientFonts(clientAssetsPath);
+
       await helper.copyClientAssets(clientAssetsPath);
-
-      await helper
-          .handleClientFonts(clientAssetsPath); // ✨ ADDED FONT MANAGEMENT
-
-      // PHASE 3: RUN FLUTTER COMMANDS
 
       print('\n--- 🚀 Phase 3: Running Build Commands ---');
 
       await runShell('flutter pub get');
 
-      await helper.ensureConfig();
+      await runShell(
+          'dart run rename setBundleId --targets ios,android --value "$bundleId"');
 
       await runShell(
-        'dart run rename setBundleId --targets ios,android --value "$bundleId"',
-      );
-
-      await runShell(
-        'dart run rename setAppName --targets ios,android --value "$appName"',
-      );
+          'dart run rename setAppName --targets ios,android --value "$appName"');
 
       await runShell('dart run flutter_launcher_icons');
 
