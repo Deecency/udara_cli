@@ -364,15 +364,12 @@ class Helper {
     var content = await pubspecFile.readAsString();
     var pubspecYaml = loadYaml(content);
 
-    // Step 1: Ensure all required dependencies exist
-    // ✨ FIX: Update pubspecYaml with the return value after each call.
     pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
     pubspecYaml = await _ensureDependency(
         'flutter_launcher_icons', pubspecFile, pubspecYaml);
     pubspecYaml =
         await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
 
-    // Now pubspecYaml is guaranteed to be up-to-date.
     content = await pubspecFile.readAsString();
 
     // Step 2: Ensure configurations exist in pubspec.yaml
@@ -384,6 +381,7 @@ class Helper {
       print(
           '⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
       configAdded = true;
+
       newContent += '''
 
   # ------------------ ADDED BY UDARA_CLI ------------------
@@ -396,10 +394,10 @@ class Helper {
   ''';
     }
 
-    // Check for splash_master config
     if (pubspecYaml['splash_master'] == null) {
       print('⚠️ `splash_master` configuration not found. Adding a template...');
       configAdded = true;
+
       newContent += '''
 
   # ------------------ ADDED BY UDARA_CLI ------------------
@@ -416,7 +414,8 @@ class Helper {
     // If we added any templates, write the file and stop the build
     if (configAdded) {
       await pubspecFile.writeAsString(newContent);
-      command.templatesWereAdded = true;
+      command.templatesWereAdded =
+          true; // Prevents cleanup from reverting this change
       throw BuildException(
         'One or more configuration templates have been added to your pubspec.yaml.',
         fix:
@@ -432,7 +431,7 @@ class Helper {
     final devDeps = pubspecYaml['dev_dependencies'] as YamlMap?;
     final regularDeps = pubspecYaml['dependencies'] as YamlMap?;
 
-    // ✨ Check both regular and dev dependencies before adding
+    // Only add the dependency if it's completely missing from both sections.
     if (devDeps?[packageName] == null && regularDeps?[packageName] == null) {
       print('⚠️ `$packageName` dependency not found. Adding it now...');
       // Using 'flutter pub add --dev' is a safe practice for build tools
@@ -442,7 +441,8 @@ class Helper {
       final content = await pubspecFile.readAsString();
       return loadYaml(content) as YamlMap;
     }
-    // If the dependency already exists in either place, do nothing.
+
+    // If the dependency already exists, return the original parsed YAML.
     return pubspecYaml;
   }
 }
