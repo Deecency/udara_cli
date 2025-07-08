@@ -364,17 +364,22 @@ class Helper {
     var content = await pubspecFile.readAsString();
     var pubspecYaml = loadYaml(content);
 
+    // Step 1: Ensure all required dependencies exist
+    // ✨ FIX: Update pubspecYaml with the return value after each call.
     pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
     pubspecYaml = await _ensureDependency(
         'flutter_launcher_icons', pubspecFile, pubspecYaml);
     pubspecYaml =
         await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
 
+    // Now pubspecYaml is guaranteed to be up-to-date.
     content = await pubspecFile.readAsString();
 
+    // Step 2: Ensure configurations exist in pubspec.yaml
     var configAdded = false;
     var newContent = content;
 
+    // Check for flutter_launcher_icons config
     if (pubspecYaml['flutter_launcher_icons'] == null) {
       print(
           '⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
@@ -387,11 +392,11 @@ class Helper {
     image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
     android: true
     ios: true
-    remove_alpha_ios: true
   # ---------------------------------------------------------
   ''';
     }
 
+    // Check for splash_master config
     if (pubspecYaml['splash_master'] == null) {
       print('⚠️ `splash_master` configuration not found. Adding a template...');
       configAdded = true;
@@ -404,11 +409,11 @@ class Helper {
     image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
     ios_content_mode: "center"
     android_gravity: "center"
-    ios_background_content_mode: "scaleToFill"
   # ---------------------------------------------------------
   ''';
     }
 
+    // If we added any templates, write the file and stop the build
     if (configAdded) {
       await pubspecFile.writeAsString(newContent);
       command.templatesWereAdded = true;
