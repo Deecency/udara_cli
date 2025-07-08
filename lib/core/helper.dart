@@ -364,6 +364,7 @@ class Helper {
     var content = await pubspecFile.readAsString();
     var pubspecYaml = loadYaml(content);
 
+    // Ensure dependencies
     pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
     pubspecYaml = await _ensureDependency(
         'flutter_launcher_icons', pubspecFile, pubspecYaml);
@@ -372,50 +373,62 @@ class Helper {
 
     content = await pubspecFile.readAsString();
 
-    // Step 2: Ensure configurations exist in pubspec.yaml
-    var configAdded = false;
-    var newContent = content;
+    // Insert config templates inside `flutter:` block with proper indentation
+    final flutterBlockPattern =
+        RegExp(r'^flutter:(\s*\n(?: {2}.+\n?)*)', multiLine: true);
+    final match = flutterBlockPattern.firstMatch(content);
 
-    // Check for flutter_launcher_icons config
-    if (pubspecYaml['flutter_launcher_icons'] == null) {
-      print(
-          '⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
-      configAdded = true;
-
-      newContent += '''
-
-  # ------------------ ADDED BY UDARA_CLI ------------------
-  # TODO: Please fill in the image_path for your app icon.
-  flutter_launcher_icons:
-    image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
-    android: true
-    ios: true
-  # ---------------------------------------------------------
-  ''';
+    if (match == null) {
+      throw BuildException(
+        'Cannot find `flutter:` block in pubspec.yaml',
+        fix: 'Make sure your pubspec.yaml has a flutter section.',
+      );
     }
 
-    if (pubspecYaml['splash_master'] == null) {
-      print('⚠️ `splash_master` configuration not found. Adding a template...');
-      configAdded = true;
+    final flutterBlock = match.group(0)!;
 
-      newContent += '''
+    final hasLauncherIcons = flutterBlock.contains('flutter_launcher_icons:');
+    final hasSplashMaster = flutterBlock.contains('splash_master:');
 
-  # ------------------ ADDED BY UDARA_CLI ------------------
-  # TODO: Please fill in the image path for your splash screen.
-  splash_master:
-    color: "#FFFFFF"
-    image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
-    ios_content_mode: "center"
-    android_gravity: "center"
-  # ---------------------------------------------------------
-  ''';
+    final buffer = StringBuffer(flutterBlock.trimRight());
+
+    if (!hasLauncherIcons) {
+      print('⚠️ `flutter_launcher_icons` config missing. Adding...');
+      buffer.write('''
+
+    # ------------------ ADDED BY UDARA_CLI ------------------
+    # TODO: Please fill in the image_path for your app icon.
+    flutter_launcher_icons:
+      image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+      android: true
+      ios: true
+      remove_alpha_ios: true
+    # ---------------------------------------------------------
+  ''');
     }
 
-    // If we added any templates, write the file and stop the build
-    if (configAdded) {
-      await pubspecFile.writeAsString(newContent);
-      command.templatesWereAdded =
-          true; // Prevents cleanup from reverting this change
+    if (!hasSplashMaster) {
+      print('⚠️ `splash_master` config missing. Adding...');
+      buffer.write('''
+
+    # ------------------ ADDED BY UDARA_CLI ------------------
+    # TODO: Please fill in the image path for your splash screen.
+    splash_master:
+      color: "#FFFFFF"
+      image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+      ios_content_mode: "center"
+      android_gravity: "center"
+      ios_background_content_mode: "scaleToFill"
+    # ---------------------------------------------------------
+  ''');
+    }
+
+    if (!hasLauncherIcons || !hasSplashMaster) {
+      final updatedContent =
+          content.replaceFirst(flutterBlock, buffer.toString());
+      await pubspecFile.writeAsString(updatedContent);
+
+      command.templatesWereAdded = true;
       throw BuildException(
         'One or more configuration templates have been added to your pubspec.yaml.',
         fix:
