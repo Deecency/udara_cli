@@ -1,0 +1,17 @@
+analyzer:
+  exclude:
+    - "**/*_generated.dart"
+    - "**/*.g.dart"
+  errors:
+    invalid_annotation_target: ignore
+    lines_longer_than_80_chars: ignore
+    constant_identifier_names: ignore
+    must_be_immutable: ignore
+    avoid_positional_boolean_parameters: ignore
+    duplicate_ignore: ignore
+    flutter_style_todos: ignore
+    no_default_cases: ignore
+    unused_field: ignore
+linter:
+  rules:
+    public_member_api_docs: false
