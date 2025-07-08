@@ -48,6 +48,7 @@ class BuildCommand extends UdaraCommand {
   bool iconsGenerated = false;
   Directory? renamedSplashAssetsDir;
   String? appNameForCleanup;
+  bool templatesWereAdded = false;
 
   @override
   Future<void> run() async {

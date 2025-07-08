@@ -309,9 +309,10 @@ class Helper {
         await storyboardFile.writeAsString(content);
       }
     }
-    if (command.pubspecBackup != null && command.pubspecBackup!.existsSync()) {
-      print('Restoring original `pubspec.yaml`...');
 
+    if ((command.pubspecBackup?.existsSync() ?? false) &&
+        !command.templatesWereAdded) {
+      print('Restoring original `pubspec.yaml`...');
       await command.pubspecBackup!.rename('${command.projectDir}/pubspec.yaml');
     }
 
@@ -410,6 +411,7 @@ class Helper {
 
     if (configAdded) {
       await pubspecFile.writeAsString(newContent);
+      command.templatesWereAdded = true;
       throw BuildException(
         'One or more configuration templates have been added to your pubspec.yaml.',
         fix:
@@ -420,11 +422,13 @@ class Helper {
     print('✅ All necessary configurations are present.');
   }
 
-  /// Helper to check for a dependency and add it if missing.
   Future<YamlMap> _ensureDependency(
       String packageName, File pubspecFile, YamlMap pubspecYaml) async {
-    final dependencies = pubspecYaml['dev_dependencies'] as YamlMap?;
-    if (dependencies?[packageName] == null) {
+    final devDeps = pubspecYaml['dev_dependencies'] as YamlMap?;
+    final regularDeps = pubspecYaml['dependencies'] as YamlMap?;
+
+    // ✨ Check both regular and dev dependencies before adding
+    if (devDeps?[packageName] == null && regularDeps?[packageName] == null) {
       print('⚠️ `$packageName` dependency not found. Adding it now...');
       // Using 'flutter pub add --dev' is a safe practice for build tools
       await command.runShell('flutter pub add --dev $packageName');
@@ -433,6 +437,7 @@ class Helper {
       final content = await pubspecFile.readAsString();
       return loadYaml(content) as YamlMap;
     }
+    // If the dependency already exists in either place, do nothing.
     return pubspecYaml;
   }
 }
