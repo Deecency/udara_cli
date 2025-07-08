@@ -1,1 +1,10 @@
-# Dart & Flutter.dart_tool/.packagesbuild/pubspec.lock# IDE-specific.idea/.vscode/
+# Dart & Flutter
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# IDE-specific
+.idea/
+.vscode/
+build.sh
