@@ -361,65 +361,84 @@ class Helper {
       throw BuildException('Cannot find pubspec.yaml');
     }
 
-    var content = await pubspecFile.readAsString();
-    var pubspecYaml = loadYaml(content);
+    var pubspecYaml = loadYaml(await pubspecFile.readAsString());
+    var lines = await pubspecFile.readAsLines();
+    var configAdded = false;
 
+    // Step 1: Ensure dependencies exist
     pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
     pubspecYaml = await _ensureDependency(
         'flutter_launcher_icons', pubspecFile, pubspecYaml);
     pubspecYaml =
         await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
 
-    content = await pubspecFile.readAsString();
+    // Step 2: Ensure configurations exist inside the 'flutter' block
+    final flutterIndex = lines.indexWhere((l) => l.trim() == 'flutter:');
+    if (flutterIndex == -1) {
+      throw BuildException(
+          'A `flutter:` section could not be found in your pubspec.yaml.');
+    }
 
-    // Step 2: Ensure configurations exist in pubspec.yaml
-    var configAdded = false;
-    var newContent = content;
+    // Find a known line to insert after, e.g., 'uses-material-design'.
+    var insertIndex =
+        lines.indexWhere((l) => l.trim().startsWith('uses-material-design:'));
+    if (insertIndex == -1)
+      insertIndex = flutterIndex; // Fallback to inserting at the top
 
-    if (pubspecYaml['flutter_launcher_icons'] == null) {
+    // Check for flutter_launcher_icons config
+    if (pubspecYaml['flutter_launcher_icons'] == null &&
+        pubspecYaml['flutter']?['flutter_launcher_icons'] == null) {
       print(
           '⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
       configAdded = true;
-      // ✨ FIX: Wrap the template in the _dedent() helper
-      newContent += _dedent('''
-
-          # ------------------ ADDED BY UDARA_CLI ------------------
-          # TODO: Please fill in the image_path for your app icon.
-          flutter_launcher_icons:
-            image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
-            android: true
-            ios: true
-          # ---------------------------------------------------------
-          ''');
+      final template = _dedent('''
+        # ------------------ ADDED BY UDARA_CLI ------------------
+        # TODO: Please fill in the image_path for your app icon.
+        flutter_launcher_icons:
+          image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+          android: true
+          ios: true
+        # ---------------------------------------------------------
+        ''');
+      lines.insert(insertIndex + 1, template);
     }
 
     // Check for splash_master config
-    if (pubspecYaml['splash_master'] == null) {
+    if (pubspecYaml['splash_master'] == null &&
+        pubspecYaml['flutter']?['splash_master'] == null) {
       print('⚠️ `splash_master` configuration not found. Adding a template...');
       configAdded = true;
-      // ✨ FIX: Wrap the template in the _dedent() helper
-      newContent += _dedent('''
-
-          # ------------------ ADDED BY UDARA_CLI ------------------
-          # TODO: Please fill in the image path for your splash screen.
-          splash_master:
-            color: "#FFFFFF"
-            image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
-            ios_content_mode: "center"
-            android_gravity: "center"
-          # ---------------------------------------------------------
-          ''');
+      final template = _dedent('''
+        # ------------------ ADDED BY UDARA_CLI ------------------
+        # TODO: Please fill in the image path for your splash screen.
+        splash_master:
+          color: "#FFFFFF"
+          image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+          ios_content_mode: "center"
+          android_gravity: "center"
+        # ---------------------------------------------------------
+        ''');
+      lines.insert(insertIndex + 1, template);
     }
 
     // If we added any templates, write the file and stop the build
     if (configAdded) {
-      await pubspecFile.writeAsString(newContent);
-      command.templatesWereAdded =
-          true; // Prevents cleanup from reverting this change
+      // We need to indent the new blocks to be children of `flutter:`
+      // This is a bit of a hack, but simpler than a full YAML builder.
+      final finalContent = lines.join('\n').replaceAllMapped(
+            RegExp(r'(# --- ADDED BY UDARA_CLI ---[\s\S]*?# ---+)',
+                multiLine: true),
+            (match) => match.group(0)!.replaceAllMapped(
+                RegExp(r'^.', multiLine: true),
+                (lineMatch) => '  ${lineMatch.group(0)}'),
+          );
+
+      await pubspecFile.writeAsString(finalContent);
+      command.templatesWereAdded = true;
       throw BuildException(
-        'One or more configuration templates have been added to your pubspec.yaml.',
+        'Configuration templates have been added to your pubspec.yaml.',
         fix:
-            'Please fill in the required values (especially image paths) and run the build again.',
+            'Please open pubspec.yaml, fill in the required values, and run the build again.',
       );
     }
 
