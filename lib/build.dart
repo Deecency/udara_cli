@@ -36,7 +36,7 @@ class BuildCommand extends UdaraCommand {
 
   @override
   final String description =
-      'Builds a whitelabel of the Flutter project for a specific client.  eg udara_cli build --client clientA --platform android --test';
+      'Builds a whitelabel of the Flutter project for a specific client. To run example -> `udara_cli build --client clientA --platform android --test`';
 
   File? pubspecBackup;
   Directory? copiedAssetsDir;

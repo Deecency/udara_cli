@@ -86,9 +86,9 @@ class Helper {
       throw BuildException('Could not find `assets:` section in pubspec.yaml');
     }
     final clientAssetDirName = p.basename(clientAssetsPath);
-    final newAssetEntry = '    - assets/logos/$clientAssetDirName/';
+    final newAssetEntry = '    - assets/branding/$clientAssetDirName/';
     const newAssetEntry2 = '    - .env';
-    const lineToRemove = '    - clients/udara/.env';
+    const lineToRemove = '    - clients/default/.env';
     final indexToReplace = lines.indexOf(lineToRemove);
     if (indexToReplace != -1) {
       lines[indexToReplace] = newAssetEntry2;
@@ -134,7 +134,7 @@ class Helper {
       );
     }
 
-    final targetParentDir = Directory('${command.projectDir}/assets/logos');
+    final targetParentDir = Directory('${command.projectDir}/assets/branding');
 
     await targetParentDir.create(recursive: true);
 
@@ -365,27 +365,22 @@ class Helper {
     var lines = await pubspecFile.readAsLines();
     var configAdded = false;
 
-    // Step 1: Ensure dependencies exist
     pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
     pubspecYaml = await _ensureDependency(
         'flutter_launcher_icons', pubspecFile, pubspecYaml);
     pubspecYaml =
         await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
 
-    // Step 2: Ensure configurations exist inside the 'flutter' block
     final flutterIndex = lines.indexWhere((l) => l.trim() == 'flutter:');
     if (flutterIndex == -1) {
       throw BuildException(
           'A `flutter:` section could not be found in your pubspec.yaml.');
     }
 
-    // Find a known line to insert after, e.g., 'uses-material-design'.
     var insertIndex =
         lines.indexWhere((l) => l.trim().startsWith('uses-material-design:'));
-    if (insertIndex == -1)
-      insertIndex = flutterIndex; // Fallback to inserting at the top
+    if (insertIndex == -1) insertIndex = flutterIndex;
 
-    // Check for flutter_launcher_icons config
     if (pubspecYaml['flutter_launcher_icons'] == null &&
         pubspecYaml['flutter']?['flutter_launcher_icons'] == null) {
       print(
@@ -395,7 +390,7 @@ class Helper {
         # ------------------ ADDED BY UDARA_CLI ------------------
         # TODO: Please fill in the image_path for your app icon.
         flutter_launcher_icons:
-          image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+          image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH DEFAULT LAUNCHER ICON IMAGE
           android: true
           ios: true
         # ---------------------------------------------------------
@@ -403,7 +398,6 @@ class Helper {
       lines.insert(insertIndex + 1, template);
     }
 
-    // Check for splash_master config
     if (pubspecYaml['splash_master'] == null &&
         pubspecYaml['flutter']?['splash_master'] == null) {
       print('⚠️ `splash_master` configuration not found. Adding a template...');
@@ -413,7 +407,7 @@ class Helper {
         # TODO: Please fill in the image path for your splash screen.
         splash_master:
           color: "#FFFFFF"
-          image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+          image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH TO DEFAULT APP SPLASH IMAGE
           ios_content_mode: "center"
           android_gravity: "center"
         # ---------------------------------------------------------
@@ -421,10 +415,7 @@ class Helper {
       lines.insert(insertIndex + 1, template);
     }
 
-    // If we added any templates, write the file and stop the build
     if (configAdded) {
-      // We need to indent the new blocks to be children of `flutter:`
-      // This is a bit of a hack, but simpler than a full YAML builder.
       final finalContent = lines.join('\n').replaceAllMapped(
             RegExp(r'(# --- ADDED BY UDARA_CLI ---[\s\S]*?# ---+)',
                 multiLine: true),
@@ -450,18 +441,15 @@ class Helper {
     final devDeps = pubspecYaml['dev_dependencies'] as YamlMap?;
     final regularDeps = pubspecYaml['dependencies'] as YamlMap?;
 
-    // Only add the dependency if it's completely missing from both sections.
     if (devDeps?[packageName] == null && regularDeps?[packageName] == null) {
       print('⚠️ `$packageName` dependency not found. Adding it now...');
-      // Using 'flutter pub add --dev' is a safe practice for build tools
+
       await command.runShell('flutter pub add --dev $packageName');
 
-      // Reread and parse the file to reflect the change
       final content = await pubspecFile.readAsString();
       return loadYaml(content) as YamlMap;
     }
 
-    // If the dependency already exists, return the original parsed YAML.
     return pubspecYaml;
   }
 }
