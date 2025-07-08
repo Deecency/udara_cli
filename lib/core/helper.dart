@@ -364,7 +364,6 @@ class Helper {
     var content = await pubspecFile.readAsString();
     var pubspecYaml = loadYaml(content);
 
-    // Ensure dependencies
     pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
     pubspecYaml = await _ensureDependency(
         'flutter_launcher_icons', pubspecFile, pubspecYaml);
@@ -373,62 +372,50 @@ class Helper {
 
     content = await pubspecFile.readAsString();
 
-    // Insert config templates inside `flutter:` block with proper indentation
-    final flutterBlockPattern =
-        RegExp(r'^flutter:(\s*\n(?: {2}.+\n?)*)', multiLine: true);
-    final match = flutterBlockPattern.firstMatch(content);
+    // Step 2: Ensure configurations exist in pubspec.yaml
+    var configAdded = false;
+    var newContent = content;
 
-    if (match == null) {
-      throw BuildException(
-        'Cannot find `flutter:` block in pubspec.yaml',
-        fix: 'Make sure your pubspec.yaml has a flutter section.',
-      );
+    if (pubspecYaml['flutter_launcher_icons'] == null) {
+      print(
+          '⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
+      configAdded = true;
+      // ✨ FIX: Wrap the template in the _dedent() helper
+      newContent += _dedent('''
+
+          # ------------------ ADDED BY UDARA_CLI ------------------
+          # TODO: Please fill in the image_path for your app icon.
+          flutter_launcher_icons:
+            image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+            android: true
+            ios: true
+          # ---------------------------------------------------------
+          ''');
     }
 
-    final flutterBlock = match.group(0)!;
+    // Check for splash_master config
+    if (pubspecYaml['splash_master'] == null) {
+      print('⚠️ `splash_master` configuration not found. Adding a template...');
+      configAdded = true;
+      // ✨ FIX: Wrap the template in the _dedent() helper
+      newContent += _dedent('''
 
-    final hasLauncherIcons = flutterBlock.contains('flutter_launcher_icons:');
-    final hasSplashMaster = flutterBlock.contains('splash_master:');
-
-    final buffer = StringBuffer(flutterBlock.trimRight());
-
-    if (!hasLauncherIcons) {
-      print('⚠️ `flutter_launcher_icons` config missing. Adding...');
-      buffer.write('''
-
-    # ------------------ ADDED BY UDARA_CLI ------------------
-    # TODO: Please fill in the image_path for your app icon.
-    flutter_launcher_icons:
-      image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
-      android: true
-      ios: true
-      remove_alpha_ios: true
-    # ---------------------------------------------------------
-  ''');
+          # ------------------ ADDED BY UDARA_CLI ------------------
+          # TODO: Please fill in the image path for your splash screen.
+          splash_master:
+            color: "#FFFFFF"
+            image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
+            ios_content_mode: "center"
+            android_gravity: "center"
+          # ---------------------------------------------------------
+          ''');
     }
 
-    if (!hasSplashMaster) {
-      print('⚠️ `splash_master` config missing. Adding...');
-      buffer.write('''
-
-    # ------------------ ADDED BY UDARA_CLI ------------------
-    # TODO: Please fill in the image path for your splash screen.
-    splash_master:
-      color: "#FFFFFF"
-      image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH
-      ios_content_mode: "center"
-      android_gravity: "center"
-      ios_background_content_mode: "scaleToFill"
-    # ---------------------------------------------------------
-  ''');
-    }
-
-    if (!hasLauncherIcons || !hasSplashMaster) {
-      final updatedContent =
-          content.replaceFirst(flutterBlock, buffer.toString());
-      await pubspecFile.writeAsString(updatedContent);
-
-      command.templatesWereAdded = true;
+    // If we added any templates, write the file and stop the build
+    if (configAdded) {
+      await pubspecFile.writeAsString(newContent);
+      command.templatesWereAdded =
+          true; // Prevents cleanup from reverting this change
       throw BuildException(
         'One or more configuration templates have been added to your pubspec.yaml.',
         fix:
@@ -458,4 +445,33 @@ class Helper {
     // If the dependency already exists, return the original parsed YAML.
     return pubspecYaml;
   }
+}
+
+/// Removes common leading whitespace from a multi-line string.
+String _dedent(String text) {
+  var lines = text.split('\n');
+  if (lines.isEmpty) return '';
+
+  if (lines.first.trim().isEmpty) {
+    lines.removeAt(0);
+  }
+
+  var indent = -1;
+  for (final line in lines) {
+    if (line.trim().isNotEmpty) {
+      final currentIndent = line.indexOf(RegExp(r'[^ ]'));
+      if (indent == -1 || currentIndent < indent) {
+        indent = currentIndent;
+      }
+    }
+  }
+
+  if (indent <= 0) return text;
+
+  return lines.map((line) {
+    if (line.length > indent) {
+      return line.substring(indent);
+    }
+    return line;
+  }).join('\n');
 }
