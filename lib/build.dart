@@ -115,11 +115,8 @@ class BuildCommand extends UdaraCommand {
       if (platform == 'android') {
         final buildType = (type == 'aab') ? 'aab' : 'apk --release';
 
-        print(
+        await runShell(
             'flutter build $buildType --dart-define=CLIENT_ENV="${rootEnvFile!.path}"');
-
-        // await runShell(
-        //     'flutter build $buildType --dart-define=CLIENT_ENV="${rootEnvFile!.path}"');
       } else {
         // iOS
 
