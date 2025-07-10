@@ -110,10 +110,6 @@ class BuildCommand extends UdaraCommand {
 
       // PHASE 4: THE FINAL BUILD
 
-      await runShell('flutter clean');
-
-      await runShell('flutter pub get');
-
       print('\n--- 📦 Phase 4: Building the App using ---');
 
       if (platform == 'android') {
