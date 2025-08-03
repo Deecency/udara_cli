@@ -3,6 +3,7 @@ import 'package:udara_cli/core/core.dart';
 import 'package:udara_cli/scripts.dart';
 import 'package:udara_cli/services/config_service.dart';
 import 'package:udara_cli/set_up.dart';
+import 'package:udara_cli/slack_test.dart';
 
 Future<void> main(List<String> arguments) async {
   final runner = CommandRunner<void>(
@@ -27,7 +28,8 @@ Future<void> main(List<String> arguments) async {
     ..addCommand(CleanCommand())
     ..addCommand(ListClientsCommand())
     ..addCommand(SetupCommand())
-    ..addCommand(ConfigCommand());
+    ..addCommand(ConfigCommand())
+    ..addCommand(SlackTestCommand());
 
   try {
     // Check if this is the first time running the CLI
