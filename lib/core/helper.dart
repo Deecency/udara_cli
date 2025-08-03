@@ -9,6 +9,57 @@ class Helper {
 
   Helper(this.command);
 
+  Future<Future<File>> renameApk(String newFileName, String type) async {
+    File buildFile;
+
+    if (type == 'apk') {
+      buildFile = File('${command.projectDir}/build/app/outputs/flutter-apk/app-release.apk');
+    }
+    if (type == 'aab') {
+      buildFile = File('${command.projectDir}/build/app/outputs/bundle/release/app-release.aab');
+    } else {
+      throw BuildException(
+        'Invalid build type: $type. Expected "apk" or "aab".',
+        fix: 'Please specify a valid build type.',
+      );
+    }
+
+    if (!buildFile.existsSync()) {
+      throw BuildException(
+        'Apk file not found at `${buildFile.path}`.',
+        fix: 'Rerun the build script and Ensure the build was successful.',
+      );
+    }
+    var path = buildFile.path;
+    var lastSeparator = path.lastIndexOf(Platform.pathSeparator);
+    var newPath = path.substring(0, lastSeparator + 1) + '$newFileName.$type';
+    return buildFile.rename(newPath);
+  }
+
+  Future<String> getVersionFromPubspec() async {
+    final pubspecFile = File('${command.projectDir}/pubspec.yaml');
+
+    if (!pubspecFile.existsSync()) {
+      throw BuildException(
+        'pubspec.yaml not found at `${pubspecFile.path}`.',
+        fix: 'Ensure you are running this command from the Flutter project root.',
+      );
+    }
+
+    final pubspecContent = await pubspecFile.readAsString();
+    final pubspecYaml = loadYaml(pubspecContent);
+
+    final version = pubspecYaml['version'] as String?;
+    if (version == null) {
+      throw BuildException(
+        'Version not found in pubspec.yaml.',
+        fix: 'Ensure your pubspec.yaml contains a version field.',
+      );
+    }
+
+    return version;
+  }
+
   Future<Map<String, String>> setupEnvironment(
     String client,
     bool isTest,
@@ -74,8 +125,7 @@ class Helper {
       throw BuildException('`pubspec.yaml` not found!');
     }
 
-    command.pubspecBackup =
-        await pubspec.copy('${command.projectDir}/pubspec.yaml.bak');
+    command.pubspecBackup = await pubspec.copy('${command.projectDir}/pubspec.yaml.bak');
 
     print('Backed up `pubspec.yaml` to `pubspec.yaml.bak`.');
 
@@ -138,8 +188,7 @@ class Helper {
 
     await targetParentDir.create(recursive: true);
 
-    final targetDir =
-        Directory(p.join(targetParentDir.path, p.basename(sourceDir.path)));
+    final targetDir = Directory(p.join(targetParentDir.path, p.basename(sourceDir.path)));
 
     if (targetDir.existsSync()) await targetDir.delete(recursive: true);
 
@@ -155,8 +204,7 @@ class Helper {
   }
 
   Future<void> handleClientFonts(String clientAssetsPath) async {
-    final clientFontsDir =
-        Directory(p.join(command.projectDir, clientAssetsPath, 'fonts'));
+    final clientFontsDir = Directory(p.join(command.projectDir, clientAssetsPath, 'fonts'));
 
     if (!clientFontsDir.existsSync()) {
       print('📝 No client fonts directory found. Using default fonts.');
@@ -166,8 +214,7 @@ class Helper {
 
     print('📝 Client fonts directory found. Processing...');
 
-    final targetFontsDir =
-        Directory(p.join(command.projectDir, 'assets', 'fonts'));
+    final targetFontsDir = Directory(p.join(command.projectDir, 'assets', 'fonts'));
 
     if (targetFontsDir.existsSync()) {
       print('  -> Backing up default fonts...');
@@ -176,11 +223,9 @@ class Helper {
 
       if (backupDir.existsSync()) await backupDir.delete(recursive: true);
 
-      command.defaultFontsBackupDir =
-          await targetFontsDir.rename(backupDir.path);
+      command.defaultFontsBackupDir = await targetFontsDir.rename(backupDir.path);
 
-      print(
-          '  -> Default fonts backed up to `${command.defaultFontsBackupDir!.path}`');
+      print('  -> Default fonts backed up to `${command.defaultFontsBackupDir!.path}`');
     }
 
     print('  -> Copying client fonts to `${targetFontsDir.path}`...');
@@ -194,8 +239,7 @@ class Helper {
     final clientFontsConfig = File(p.join(clientFontsDir.path, 'fonts.yaml'));
 
     if (clientFontsConfig.existsSync()) {
-      print(
-          '  -> Found client font configuration. Applying to `pubspec.yaml`...');
+      print('  -> Found client font configuration. Applying to `pubspec.yaml`...');
 
       final pubspecFile = File('${command.projectDir}/pubspec.yaml');
 
@@ -217,8 +261,7 @@ class Helper {
 
       await pubspecFile.writeAsString(lines.join('\n'));
 
-      print(
-          '  -> Successfully updated `pubspec.yaml` with client font configuration.');
+      print('  -> Successfully updated `pubspec.yaml` with client font configuration.');
     } else {
       print(
           '  -> No `fonts.yaml` found in client assets. Manual `pubspec.yaml` update may be needed if font families changed.');
@@ -226,8 +269,7 @@ class Helper {
   }
 
   Future<void> fixAndroidIconBug() async {
-    final buggyPath = Directory(
-        '${command.projectDir}/android/app/src/main/res/mipmap-anydpi-v26');
+    final buggyPath = Directory('${command.projectDir}/android/app/src/main/res/mipmap-anydpi-v26');
 
     if (buggyPath.existsSync()) {
       print('Found and removing problematic Android v26 icon directory.');
@@ -238,38 +280,32 @@ class Helper {
 
   Future<void> updateIosSplash(String appName) async {
     final assetsDir = Directory(
-      p.join(command.projectDir, 'ios', 'Runner', 'Assets.xcassets',
-          'LaunchImage.imageset'),
+      p.join(command.projectDir, 'ios', 'Runner', 'Assets.xcassets', 'LaunchImage.imageset'),
     );
     final newAssetsDir = Directory(
-      p.join(command.projectDir, 'ios', 'Runner', 'Assets.xcassets',
-          'LaunchImage$appName.imageset'),
+      p.join(
+          command.projectDir, 'ios', 'Runner', 'Assets.xcassets', 'LaunchImage$appName.imageset'),
     );
     final storyboardFile = File(
-      p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj',
-          'LaunchScreen.storyboard'),
+      p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
     );
 
     if (!await assetsDir.exists()) {
-      throw BuildException(
-          'Default splash asset directory not found after running splash_master.',
+      throw BuildException('Default splash asset directory not found after running splash_master.',
           fix: 'Ensure `dart run splash_master:create` ran successfully.');
     }
 
-    print(
-        '🔄 Renaming splash asset directory to ${p.basename(newAssetsDir.path)}...');
+    print('🔄 Renaming splash asset directory to ${p.basename(newAssetsDir.path)}...');
     await assetsDir.rename(newAssetsDir.path);
     command.renamedSplashAssetsDir = newAssetsDir;
 
     if (!await storyboardFile.exists()) {
-      throw BuildException(
-          'LaunchScreen.storyboard not found at ${storyboardFile.path}.');
+      throw BuildException('LaunchScreen.storyboard not found at ${storyboardFile.path}.');
     }
 
     print('✏️ Updating LaunchScreen.storyboard...');
     var storyboardContent = await storyboardFile.readAsString();
-    storyboardContent =
-        storyboardContent.replaceAll('LaunchImage', 'LaunchImage$appName');
+    storyboardContent = storyboardContent.replaceAll('LaunchImage', 'LaunchImage$appName');
     await storyboardFile.writeAsString(storyboardContent);
 
     print('🛠️ Fixing duplicate lines in LaunchScreen.storyboard...');
@@ -298,26 +334,22 @@ class Helper {
     }
     if (command.appNameForCleanup != null) {
       final storyboardFile = File(
-        p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj',
-            'LaunchScreen.storyboard'),
+        p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
       );
       if (await storyboardFile.exists()) {
         print('✏️ Reverting LaunchScreen.storyboard changes...');
         var content = await storyboardFile.readAsString();
-        content = content.replaceAll(
-            'LaunchImage${command.appNameForCleanup}', 'LaunchImage');
+        content = content.replaceAll('LaunchImage${command.appNameForCleanup}', 'LaunchImage');
         await storyboardFile.writeAsString(content);
       }
     }
 
-    if ((command.pubspecBackup?.existsSync() ?? false) &&
-        !command.templatesWereAdded) {
+    if ((command.pubspecBackup?.existsSync() ?? false) && !command.templatesWereAdded) {
       print('Restoring original `pubspec.yaml`...');
       await command.pubspecBackup!.rename('${command.projectDir}/pubspec.yaml');
     }
 
-    if (command.copiedAssetsDir != null &&
-        command.copiedAssetsDir!.existsSync()) {
+    if (command.copiedAssetsDir != null && command.copiedAssetsDir!.existsSync()) {
       print('Removing copied client assets...');
 
       await command.copiedAssetsDir!.delete(recursive: true);
@@ -329,8 +361,7 @@ class Helper {
       await command.rootEnvFile!.delete();
     }
 
-    final targetFontsDir =
-        Directory(p.join(command.projectDir, 'assets', 'fonts'));
+    final targetFontsDir = Directory(p.join(command.projectDir, 'assets', 'fonts'));
 
     if (command.clientFontsCopied && targetFontsDir.existsSync()) {
       print('Removing copied client fonts...');
@@ -338,8 +369,7 @@ class Helper {
       await targetFontsDir.delete(recursive: true);
     }
 
-    if (command.defaultFontsBackupDir != null &&
-        command.defaultFontsBackupDir!.existsSync()) {
+    if (command.defaultFontsBackupDir != null && command.defaultFontsBackupDir!.existsSync()) {
       print('Restoring default fonts...');
 
       await command.defaultFontsBackupDir!.rename(targetFontsDir.path);
@@ -366,25 +396,20 @@ class Helper {
     var configAdded = false;
 
     pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
-    pubspecYaml = await _ensureDependency(
-        'flutter_launcher_icons', pubspecFile, pubspecYaml);
-    pubspecYaml =
-        await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
+    pubspecYaml = await _ensureDependency('flutter_launcher_icons', pubspecFile, pubspecYaml);
+    pubspecYaml = await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
 
     final flutterIndex = lines.indexWhere((l) => l.trim() == 'flutter:');
     if (flutterIndex == -1) {
-      throw BuildException(
-          'A `flutter:` section could not be found in your pubspec.yaml.');
+      throw BuildException('A `flutter:` section could not be found in your pubspec.yaml.');
     }
 
-    var insertIndex =
-        lines.indexWhere((l) => l.trim().startsWith('uses-material-design:'));
+    var insertIndex = lines.indexWhere((l) => l.trim().startsWith('uses-material-design:'));
     if (insertIndex == -1) insertIndex = flutterIndex;
 
     if (pubspecYaml['flutter_launcher_icons'] == null &&
         pubspecYaml['flutter']?['flutter_launcher_icons'] == null) {
-      print(
-          '⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
+      print('⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
       configAdded = true;
       final template = _dedent('''
         # ------------------ ADDED BY UDARA_CLI ------------------
@@ -398,8 +423,7 @@ class Helper {
       lines.insert(insertIndex + 1, template);
     }
 
-    if (pubspecYaml['splash_master'] == null &&
-        pubspecYaml['flutter']?['splash_master'] == null) {
+    if (pubspecYaml['splash_master'] == null && pubspecYaml['flutter']?['splash_master'] == null) {
       print('⚠️ `splash_master` configuration not found. Adding a template...');
       configAdded = true;
       final template = _dedent('''
@@ -417,19 +441,16 @@ class Helper {
 
     if (configAdded) {
       final finalContent = lines.join('\n').replaceAllMapped(
-            RegExp(r'(# --- ADDED BY UDARA_CLI ---[\s\S]*?# ---+)',
-                multiLine: true),
+            RegExp(r'(# --- ADDED BY UDARA_CLI ---[\s\S]*?# ---+)', multiLine: true),
             (match) => match.group(0)!.replaceAllMapped(
-                RegExp(r'^.', multiLine: true),
-                (lineMatch) => '  ${lineMatch.group(0)}'),
+                RegExp(r'^.', multiLine: true), (lineMatch) => '  ${lineMatch.group(0)}'),
           );
 
       await pubspecFile.writeAsString(finalContent);
       command.templatesWereAdded = true;
       throw BuildException(
         'Configuration templates have been added to your pubspec.yaml.',
-        fix:
-            'Please open pubspec.yaml, fill in the required values, and run the build again.',
+        fix: 'Please open pubspec.yaml, fill in the required values, and run the build again.',
       );
     }
 

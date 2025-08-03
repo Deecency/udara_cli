@@ -8,6 +8,7 @@ dependencies:
   args: ^2.5.0
   process_run: ^1.2.4
   yaml: ^3.1.2
+  http:
 
 executables:
   udara_cli:
