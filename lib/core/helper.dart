@@ -13,7 +13,7 @@ class Helper {
     File buildFile;
 
     if (type == 'apk') {
-      buildFile = File('${command.projectDir}/build/app/outputs/flutter-apk/app-release.apk');
+      buildFile = File('${command.projectDir}/build/app/outputs/apk/release/app-release.apk');
     }
     if (type == 'aab') {
       buildFile = File('${command.projectDir}/build/app/outputs/bundle/release/app-release.aab');
