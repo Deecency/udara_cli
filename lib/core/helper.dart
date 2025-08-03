@@ -14,11 +14,9 @@ class Helper {
 
     if (type == 'apk') {
       buildFile = File('${command.projectDir}/build/app/outputs/apk/release/app-release.apk');
-    }
-    if (type == 'aab') {
+    } else if (type == 'aab') {
       buildFile = File('${command.projectDir}/build/app/outputs/bundle/release/app-release.aab');
     } else {
-      print(type);
       throw BuildException(
         'Invalid build type: $type. Expected "apk" or "aab".',
         fix: 'Please specify a valid build type.',
