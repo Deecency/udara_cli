@@ -169,7 +169,7 @@ class BuildCommand extends UdaraCommand {
 
         print('\n--- 📝 Renaming APK file ---');
         final version = await helper.getVersionFromPubspec();
-        await helper.renameApk('${client}_$version', type);
+        builtApkFile = await helper.renameApk('${client}_$version', type);
         print('✅ APK renamed to: ${client}_$version.$type');
       } else {
         await runShell(

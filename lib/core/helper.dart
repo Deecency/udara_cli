@@ -9,7 +9,7 @@ class Helper {
 
   Helper(this.command);
 
-  Future<Future<File>> renameApk(String newFileName, String type) async {
+  Future<File> renameApk(String newFileName, String type) async {
     File buildFile;
 
     if (type == 'apk') {
