@@ -30,10 +30,17 @@ class Helper {
         fix: 'Rerun the build script and Ensure the build was successful.',
       );
     }
-    var path = buildFile.path;
-    var lastSeparator = path.lastIndexOf(Platform.pathSeparator);
-    var newPath = path.substring(0, lastSeparator + 1) + '$newFileName.$type';
-    return buildFile.rename(newPath);
+    try {
+      var path = buildFile.path;
+      var lastSeparator = path.lastIndexOf(Platform.pathSeparator);
+      var newPath = path.substring(0, lastSeparator + 1) + '$newFileName.$type';
+      return buildFile.rename(newPath);
+    } catch (e) {
+      throw BuildException(
+        'Failed to rename the build file: $e',
+        fix: 'Ensure you have write permissions in the build directory.',
+      );
+    }
   }
 
   Future<String> getVersionFromPubspec() async {
