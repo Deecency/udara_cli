@@ -134,8 +134,6 @@ class BuildCommand extends UdaraCommand {
 
       print('\n--- 🚀 Phase 3: Running Build Commands ---');
 
-      await _notifyBuildStep('Running Build Commands', client, platform, 'started');
-
       await runShell('flutter pub get');
 
       await runShell('dart run rename setBundleId --targets ios,android --value "$bundleId"');
@@ -153,8 +151,6 @@ class BuildCommand extends UdaraCommand {
       await helper.fixAndroidIconBug();
 
       // PHASE 4: THE FINAL BUILD
-
-      await _notifyBuildStep('Running Build Commands', client, platform, 'completed');
 
       print('\n--- 📦 Phase 4: Building the App using ---');
 
