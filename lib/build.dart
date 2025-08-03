@@ -176,9 +176,10 @@ class BuildCommand extends UdaraCommand {
           'flutter build ipa --dart-define=CLIENT_ENV=".env"',
         );
       }
-
+      buildSuccess = true;
       print('\n✅✅✅ Build process completed successfully! ✅✅✅');
     } catch (e) {
+      buildSuccess = false;
       errorMessage = e.toString();
       await _notifyBuildStep('Build Process', client, platform, 'failed',
           errorMessage: errorMessage);
@@ -201,6 +202,7 @@ class BuildCommand extends UdaraCommand {
           artifactFile: builtApkFile,
         );
       }
+      buildSuccess = false;
     }
   }
 
