@@ -166,6 +166,11 @@ class BuildCommand extends UdaraCommand {
         await runShell(
           'flutter build $buildType --dart-define=CLIENT_ENV=".env"',
         );
+
+        print('\n--- 📝 Renaming APK file ---');
+        final version = await helper.getVersionFromPubspec();
+        await helper.renameApk('${client}_$version', type);
+        print('✅ APK renamed to: ${client}_$version.$type');
       } else {
         await runShell(
           'flutter build ipa --dart-define=CLIENT_ENV=".env"',
@@ -183,12 +188,7 @@ class BuildCommand extends UdaraCommand {
       print('\n--- 🧹 Final Phase: Cleaning Up ---');
 
       await helper.cleanup();
-      print('\n--- 📝 Renaming APK file ---');
-      final version = await helper.getVersionFromPubspec();
-      await helper.renameApk('${client}_$version', type);
-      print('✅ APK renamed to: ${client}_$version.$type');
-
-      if (slackService != null) {
+      if (slackService != null && version != null) {
         final buildDuration = DateTime.now().difference(buildStartTime!);
         await slackService!.sendBuildSummary(
           client: client,
