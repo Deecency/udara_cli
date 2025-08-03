@@ -221,6 +221,7 @@ class BuildCommand extends UdaraCommand {
     return SlackService(
       botToken: slackToken,
       channel: channel,
+      debugMode: true,
     );
   }
 
