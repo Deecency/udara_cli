@@ -2,6 +2,7 @@ import 'package:path/path.dart' as path;
 import 'package:udara_cli/core/core.dart';
 import 'package:udara_cli/services/config_service.dart';
 import 'package:udara_cli/services/slack_service.dart';
+import 'package:yaml/yaml.dart';
 
 class SetupCommand extends UdaraCommand {
   SetupCommand() {
@@ -17,6 +18,12 @@ class SetupCommand extends UdaraCommand {
       help:
           'Initialize client directories (comma-separated list, e.g., --clients a,b,c)',
     );
+    argParser.addFlag(
+      'notify',
+      abbr: 'n',
+      negatable: false,
+      help: 'Configure Slack notifications only.',
+    );
   }
 
   @override
@@ -24,35 +31,147 @@ class SetupCommand extends UdaraCommand {
 
   @override
   final String description =
-      'Configure CLI settings and initialize client directories.';
+      '''Configure CLI settings and initialize project structure.
+
+Usage modes:
+  udara_cli setup                    # Configure project dependencies and structure
+  udara_cli setup --clients a,b,c   # Initialize specific client directories
+  udara_cli setup --notify           # Configure Slack notifications only
+  udara_cli setup --reset            # Reset all settings''';
 
   @override
   Future<void> run() async {
     final reset = argResults!['reset'] as bool;
     final clientsOption = argResults!['clients'] as String?;
+    final notifyOnly = argResults!['notify'] as bool;
 
     if (reset) {
       await _resetConfiguration();
       return;
     }
 
-    print('🚀 Welcome to Udara CLI Setup!');
-    print('Let\'s configure your CLI preferences.\n');
-
-    // Handle client initialization if specified
+    // Handle specific modes
     if (clientsOption != null) {
-      await _initializeClients(clientsOption);
-      print(''); // Add spacing
+      await _handleClientsSetup(clientsOption);
+      return;
     }
 
-    // Continue with regular Slack configuration
-    await _configureSlack();
+    if (notifyOnly) {
+      await _handleNotificationSetup();
+      return;
+    }
 
-    print('\n✅ Setup completed successfully!');
-    print('💡 You can run "udara_cli config" to view your current settings.');
-    print('💡 Run "udara_cli setup --reset" to reset all settings.');
+    // Default: Full project configuration setup
+    await _handleProjectSetup();
   }
 
+  /// Handle full project configuration setup (dependencies, config files, etc.)
+  Future<void> _handleProjectSetup() async {
+    print('🚀 Welcome to Udara CLI Setup!');
+    print('Setting up project configuration and dependencies...\n');
+
+    await _ensureProjectConfiguration();
+
+    print('\n✅ Project setup completed successfully!');
+    print('💡 Next steps:');
+    print(
+        '   • Run "udara_cli setup --clients a,b,c" to initialize client directories');
+    print(
+        '   • Run "udara_cli setup --notify" to configure Slack notifications');
+    print(
+        '   • Update configuration files with your specific paths and settings');
+  }
+
+  /// Handle client directories initialization
+  Future<void> _handleClientsSetup(String clientsInput) async {
+    print('🚀 Initializing Client Directories');
+    print('Setting up client structure...\n');
+
+    await _initializeClients(clientsInput);
+    await _setupAssetDirectories();
+
+    print('✅ Client setup completed successfully!');
+    print('💡 You can run "udara_cli list" to see all available clients');
+  }
+
+  /// Handle Slack notifications setup only
+  Future<void> _handleNotificationSetup() async {
+    print('🚀 Notification Setup');
+    print('Configuring Slack notifications...\n');
+
+    await _configureSlack();
+
+    print('\n✅ Notification setup completed successfully!');
+    print('💡 You can now use --slack flag with build commands');
+  }
+
+  /// Ensure all project dependencies and configuration files are set up
+  Future<void> _ensureProjectConfiguration() async {
+    print('--- 📦 Phase 1: Dependencies ---');
+    await _ensureDependencies();
+
+    print('\n--- ⚙️ Phase 2: Configuration Files ---');
+    await _ensureConfigurationFiles();
+
+    print('\n--- 🧹 Phase 3: Cleanup Old Config ---');
+    await _cleanupOldConfigurations();
+  }
+
+  /// Ensure all required dependencies are installed
+  Future<void> _ensureDependencies() async {
+    print('🔍 Checking required dependencies...');
+
+    final pubspecFile = File(path.join(Directory.current.path, 'pubspec.yaml'));
+    if (!await pubspecFile.exists()) {
+      throw BuildException('Cannot find pubspec.yaml in current directory');
+    }
+
+    var pubspecYaml = loadYaml(await pubspecFile.readAsString());
+
+    final requiredDeps = ['rename', 'flutter_launcher_icons', 'splash_master'];
+
+    for (final dep in requiredDeps) {
+      pubspecYaml = await _ensureDependency(dep, pubspecFile, pubspecYaml);
+    }
+
+    print('✅ All required dependencies are installed');
+  }
+
+  /// Ensure all configuration files exist
+  Future<void> _ensureConfigurationFiles() async {
+    print('📄 Setting up configuration files...');
+
+    // Generate flutter_launcher_icons.yaml
+    final iconsResult = await _ensureFlutterLauncherIconsConfig();
+    if (iconsResult.created) {
+      print('✅ Created flutter_launcher_icons.yaml');
+    } else {
+      print('✅ flutter_launcher_icons.yaml already exists');
+    }
+
+    // Check/setup splash_master in pubspec.yaml
+    await _ensureSplashMasterConfig();
+  }
+
+  /// Clean up old configurations from pubspec.yaml
+  Future<void> _cleanupOldConfigurations() async {
+    print('🧹 Cleaning up old configuration entries...');
+
+    final pubspecFile = File(path.join(Directory.current.path, 'pubspec.yaml'));
+    final lines = await pubspecFile.readAsLines();
+
+    final cleanupResult = await _cleanupOldFlutterLauncherIconsConfig(lines);
+
+    if (cleanupResult.modified) {
+      await pubspecFile.writeAsString(cleanupResult.lines.join('\n'));
+      print(
+          '✅ Removed old flutter_launcher_icons configuration from pubspec.yaml');
+    } else {
+      print('✅ No old configurations found to clean up');
+    }
+  }
+
+  /// Initialize client directories
   Future<void> _initializeClients(String clientsInput) async {
     final clientNames = clientsInput
         .split(',')
@@ -65,7 +184,8 @@ class SetupCommand extends UdaraCommand {
       return;
     }
 
-    print('🏗️  Initializing client directories...\n');
+    print(
+        '🏗️  Initializing ${clientNames.length} client director${clientNames.length == 1 ? 'y' : 'ies'}...\n');
 
     final projectRoot = Directory.current.path;
     final clientsDir = Directory(path.join(projectRoot, 'clients'));
@@ -80,22 +200,44 @@ class SetupCommand extends UdaraCommand {
       await _createClientStructure(clientsDir.path, clientName);
     }
 
-    print('✅ Client directories initialized successfully!\n');
-    print('📋 Next steps for each client:');
+    print('\n📋 Next steps for each client:');
     print('   1. Update the .env and .env_test files with your configuration');
     print(
         '   2. Replace logo_small.png and logo_large.png with your client\'s assets');
     print('   3. Add any custom fonts to the fonts/ directory');
-    print('   4. Run "udara_cli list" to see all available clients\n');
   }
 
+  Future<void> _setupAssetDirectories() async {
+    // Get the path to the project's root directory.
+    final projectRoot = Directory.current.path;
+
+    // 1. Check for and create the 'assets' directory.
+    final assetsDir = Directory(path.join(projectRoot, 'assets'));
+    if (!await assetsDir.exists()) {
+      await assetsDir.create();
+      print('📁 Created assets directory');
+    } else {
+      print('✅ assets directory already exists');
+    }
+
+    // 2. Check for and create the 'branding' subdirectory inside 'assets'.
+    final brandingDir = Directory(path.join(assetsDir.path, 'branding'));
+    if (!await brandingDir.exists()) {
+      await brandingDir.create();
+      print('📁 Created branding directory inside assets');
+    } else {
+      print('✅ branding directory already exists');
+    }
+  }
+
+  /// Create directory structure for a single client
   Future<void> _createClientStructure(
       String clientsPath, String clientName) async {
     print('🔧 Setting up client: $clientName');
 
     // Validate client name
     if (!_isValidClientName(clientName)) {
-      print('❌ Invalid client name: $clientName');
+      print('   ❌ Invalid client name: $clientName');
       print(
           '   Client names should only contain letters, numbers, underscores, and hyphens.');
       return;
@@ -106,10 +248,10 @@ class SetupCommand extends UdaraCommand {
     // Check if client already exists
     if (await clientDir.exists()) {
       final overwrite = _promptBool(
-          '⚠️  Client "$clientName" already exists. Overwrite?',
+          '   ⚠️  Client "$clientName" already exists. Overwrite?',
           defaultValue: false);
       if (!overwrite) {
-        print('   Skipped $clientName');
+        print('   ⏭️  Skipped $clientName');
         return;
       }
     }
@@ -148,108 +290,7 @@ class SetupCommand extends UdaraCommand {
     }
   }
 
-  bool _isValidClientName(String name) {
-    // Allow letters, numbers, underscores, and hyphens
-    final regex = RegExp(r'^[a-zA-Z0-9_-]+$');
-    return regex.hasMatch(name) && name.isNotEmpty;
-  }
-
-  String _generateEnvTemplate(String clientName, {required bool isProduction}) {
-    final suffix = isProduction ? '' : '_test';
-    final appNameSuffix = isProduction ? '' : ' (Test)';
-
-    return '''# Environment configuration for $clientName${isProduction ? ' (Production)' : ' (Development)'}
-# Generated by Udara CLI - Update these values according to your client's requirements
-
-# Bundle ID for the app (must be unique)
-BUNDLE_ID=com.yourcompany.$clientName$suffix
-
-# App name as it appears to users
-APP_NAME_PROD=$clientName App$appNameSuffix
-
-# Path to app icon (relative to client directory)
-APP_ICON_PATH=logo_small.png
-
-# Path to assets directory (relative to client directory)
-ASSETS_PATH=.
-
-# Optional: Slack notification channel for this client
-# SLACK_CHANNEL=#$clientName-builds
-
-# Add any additional environment variables below
-# CUSTOM_API_URL=https://api.$clientName.com
-# CUSTOM_THEME_COLOR=#FF5722
-''';
-  }
-
-  Future<void> _createPlaceholderLogo(
-      String clientPath, String fileName, String description) async {
-    final logoFile = File(path.join(clientPath, fileName));
-
-    // Create a simple text file as placeholder
-    // In a real implementation, you might want to generate actual image files
-    final placeholderContent = '''# $description
-#
-# This is a placeholder file. Replace this with your actual $fileName image.
-# Recommended formats: PNG, JPG
-# Recommended sizes:
-#   - logo_small.png: 192x192px (app icon)
-#   - logo_large.png: 512x512px (splash screen, marketing)
-#
-# Generated by Udara CLI
-''';
-
-    await logoFile.writeAsString(placeholderContent);
-  }
-
-  String _generateClientReadme(String clientName) {
-    return '''# $clientName Client Configuration
-
-This directory contains the configuration and assets for the **$clientName** client.
-
-## Directory Structure
-
-```
-$clientName/
-├── fonts/              # Custom fonts for this client
-├── .env               # Production environment variables
-├── .env_test          # Development environment variables
-├── logo_small.png     # Small logo (app icon)
-├── logo_large.png     # Large logo (splash screen)
-└── README.md          # This file
-```
-
-## Configuration Files
-
-### .env / .env_test
-These files contain environment-specific configuration:
-- `BUNDLE_ID`: Unique bundle identifier for the app
-- `APP_NAME_PROD`: Display name for the app
-- `APP_ICON_PATH`: Path to the app icon
-- `ASSETS_PATH`: Path to additional assets
-
-### Assets
-- **logo_small.png**: Used as the app icon (recommended: 192x192px)
-- **logo_large.png**: Used for splash screens and marketing (recommended: 512x512px)
-- **fonts/**: Directory for custom fonts used by this client
-
-## Usage
-
-To build this client:
-```bash
-udara_cli build $clientName
-```
-
-To build for testing:
-```bash
-udara_cli build $clientName --test
-```
-
----
-*Generated by Udara CLI*
-''';
-  }
-
+  /// Configure Slack notifications
   Future<void> _configureSlack() async {
     final currentlyConfigured = await ConfigService.isSlackConfigured();
 
@@ -324,15 +365,300 @@ udara_cli build $clientName --test
         '💡 You can specify channels per build using --slack-channel parameter');
   }
 
+  // Configuration Management Methods
+  Future<ConfigCreationResult> _ensureFlutterLauncherIconsConfig() async {
+    final configFile =
+        File(path.join(Directory.current.path, 'flutter_launcher_icons.yaml'));
+
+    if (await configFile.exists()) {
+      return ConfigCreationResult(false);
+    }
+
+    final template = '''# Flutter Launcher Icons Configuration
+# Generated by Udara CLI
+#
+# This file configures app icons for your Flutter project.
+# For more options, see: https://pub.dev/packages/flutter_launcher_icons
+
+flutter_launcher_icons:
+  # IMPORTANT: Update this path to your base app icon
+  image_path: "assets/logo/app_icon.png"
+
+  # Platform-specific settings
+  android: true
+  ios: true
+
+  # Optional: Custom icon paths for different platforms
+  # android_icon_path: "assets/android_icon.png"
+  # ios_icon_path: "assets/ios_icon.png"
+
+  # Optional: Adaptive icons for Android (API 26+)
+  # adaptive_icon_background: "#FFFFFF"
+  # adaptive_icon_foreground: "assets/logo/app_icon_foreground.png"
+
+  # Optional: Custom sizes
+  # min_sdk_android: 21
+
+  # Optional: Remove the old launcher icon
+  # remove_alpha_ios: true
+
+# Additional configuration options:
+# - background_color_ios: Set iOS icon background color
+# - theme_color: Set theme color for adaptive icons
+# - web: Configure web app icons
+# - windows: Configure Windows app icons
+# - macos: Configure macOS app icons
+# - linux: Configure Linux app icons
+
+# To generate icons after configuration:
+# Run: dart run flutter_launcher_icons:generate
+''';
+
+    await configFile.writeAsString(template);
+    return ConfigCreationResult(true);
+  }
+
+  Future<void> _ensureSplashMasterConfig() async {
+    final pubspecFile = File(path.join(Directory.current.path, 'pubspec.yaml'));
+    final pubspecYaml = loadYaml(await pubspecFile.readAsString());
+
+    // Check if splash_master configuration already exists
+    if (pubspecYaml['splash_master'] != null ||
+        pubspecYaml['flutter']?['splash_master'] != null) {
+      print('✅ splash_master configuration already exists');
+      return;
+    }
+
+    print('📄 Adding splash_master configuration template...');
+
+    final lines = await pubspecFile.readAsLines();
+
+    // Find the flutter section
+    final flutterIndex = lines.indexWhere((l) => l.trim() == 'flutter:');
+    if (flutterIndex == -1) {
+      throw BuildException(
+          'A `flutter:` section could not be found in your pubspec.yaml.');
+    }
+
+    // Find insertion point (after uses-material-design or at flutter section)
+    var insertIndex =
+        lines.indexWhere((l) => l.trim().startsWith('uses-material-design:'));
+    if (insertIndex == -1) insertIndex = flutterIndex;
+
+    final template = '''
+# ------------------ ADDED BY UDARA_CLI ------------------
+# Splash screen configuration
+# For more options, see: https://pub.dev/packages/splash_master
+splash_master:
+  # IMPORTANT: Update this path to your base splash screen image
+  image: "assets/logo/splash_icon.png"
+
+  # Background color (hex format)
+  color: "#FFFFFF"
+
+  # Platform-specific settings
+  ios_content_mode: "center"
+  android_gravity: "center"
+
+  # Optional: Additional customization
+  # android_fullscreen: true
+  # ios_hide_status_bar: true
+  # web_image_mode: "center"
+# ---------------------------------------------------------''';
+
+    // Insert the template
+    final templateLines = template.split('\n');
+    lines.insertAll(insertIndex + 1, templateLines);
+
+    await pubspecFile.writeAsString(lines.join('\n'));
+    print('✅ Added splash_master configuration to pubspec.yaml');
+  }
+
+  Future<ConfigCleanupResult> _cleanupOldFlutterLauncherIconsConfig(
+      List<String> lines) async {
+    var modified = false;
+    var cleanedLines = <String>[];
+    var skipSection = false;
+    var sectionIndentLevel = 0;
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final trimmedLine = line.trim();
+
+      // Check if we're entering a flutter_launcher_icons section
+      if (trimmedLine.startsWith('flutter_launcher_icons:')) {
+        skipSection = true;
+        modified = true;
+        sectionIndentLevel = _getIndentLevel(line);
+        continue;
+      }
+
+      // If we're skipping a section, check if we should stop
+      if (skipSection) {
+        final currentIndent = _getIndentLevel(line);
+
+        // Stop skipping if we've reached a line with equal or lesser indentation
+        if (trimmedLine.isNotEmpty &&
+            !trimmedLine.startsWith('#') &&
+            currentIndent <= sectionIndentLevel) {
+          skipSection = false;
+          cleanedLines.add(line);
+        }
+        continue;
+      }
+
+      cleanedLines.add(line);
+    }
+
+    return ConfigCleanupResult(cleanedLines, modified);
+  }
+
+  Future<YamlMap> _ensureDependency(
+      String packageName, File pubspecFile, YamlMap pubspecYaml) async {
+    final devDeps = pubspecYaml['dev_dependencies'] as YamlMap?;
+    final regularDeps = pubspecYaml['dependencies'] as YamlMap?;
+
+    if (devDeps?[packageName] == null && regularDeps?[packageName] == null) {
+      print('📦 Adding $packageName dependency...');
+      await runShell('flutter pub add --dev $packageName');
+
+      // Reload the pubspec after adding dependency
+      final content = await pubspecFile.readAsString();
+      return loadYaml(content) as YamlMap;
+    } else {
+      print('✅ $packageName dependency found');
+    }
+
+    return pubspecYaml;
+  }
+
+  // Utility Methods
+  int _getIndentLevel(String line) {
+    var indent = 0;
+    for (var char in line.runes) {
+      if (char == 32) {
+        // space
+        indent++;
+      } else if (char == 9) {
+        // tab
+        indent += 2; // treat tab as 2 spaces
+      } else {
+        break;
+      }
+    }
+    return indent;
+  }
+
+  bool _isValidClientName(String name) {
+    final regex = RegExp(r'^[a-zA-Z0-9_-]+$');
+    return regex.hasMatch(name) && name.isNotEmpty;
+  }
+
+  String _generateEnvTemplate(String clientName, {required bool isProduction}) {
+    final suffix = isProduction ? '' : '_test';
+    final appNameSuffix = isProduction ? '' : ' (Test)';
+
+    return '''# Environment configuration for $clientName${isProduction ? ' (Production)' : ' (Development)'}
+# Generated by Udara CLI - Update these values according to your client's requirements
+
+# Bundle ID for the app (must be unique)
+BUNDLE_ID=com.yourcompany.$clientName$suffix
+
+# App name as it appears to users
+APP_NAME_PROD=$clientName App$appNameSuffix
+
+# Generated Path to app images (relative to client directory)
+# used to generate launch icons and splash images
+
+APP_ICON_PATH="assets/branding/$clientName/logo_small.png"
+APP_LOGO_PATH="assets/branding/$clientName/logo_large.png"
+APP_LOGO_ICON_PATH="assets/branding/$clientName/logo_small.png"
+
+# Path to assets directory (relative to client directory)
+ASSETS_PATH="clients/$clientName/"
+
+# Optional: Slack notification channel for this client
+# SLACK_CHANNEL=#$clientName-builds
+
+# Add any additional environment variables below
+# CUSTOM_API_URL=https://api.$clientName.com
+# CUSTOM_THEME_COLOR=#FF5722
+''';
+  }
+
+  Future<void> _createPlaceholderLogo(
+      String clientPath, String fileName, String description) async {
+    final logoFile = File(path.join(clientPath, fileName));
+
+    final placeholderContent = '''# $description
+#
+# This is a placeholder file. Replace this with your actual $fileName image.
+# Recommended formats: PNG, JPG
+# Recommended sizes:
+#   - logo_small.png: 192x192px (app icon)
+#   - logo_large.png: 512x512px (splash screen, marketing)
+#
+# Generated by Udara CLI
+''';
+
+    await logoFile.writeAsString(placeholderContent);
+  }
+
+  String _generateClientReadme(String clientName) {
+    return '''# $clientName Client Configuration
+
+This directory contains the configuration and assets for the **$clientName** client.
+
+## Directory Structure
+
+```
+$clientName/
+├── fonts/              # Custom fonts for this client
+├── .env               # Production environment variables
+├── .env_test          # Development environment variables
+├── logo_small.png     # Small logo (app icon)
+├── logo_large.png     # Large logo (splash screen)
+└── README.md          # This file
+```
+
+## Configuration Files
+
+### .env / .env_test
+These files contain environment-specific configuration:
+- `BUNDLE_ID`: Unique bundle identifier for the app
+- `APP_NAME_PROD`: Display name for the app
+- `APP_ICON_PATH`: Path to the app icon
+- `ASSETS_PATH`: Path to additional assets
+
+### Assets
+- **logo_small.png**: Used as the app icon (recommended: 192x192px)
+- **logo_large.png**: Used for splash screens and marketing (recommended: 512x512px)
+- **fonts/**: Directory for custom fonts used by this client
+
+## Usage
+
+To build this client:
+```bash
+udara_cli build $clientName
+```
+
+To build for testing:
+```bash
+udara_cli build $clientName --test
+```
+
+---
+*Generated by Udara CLI*
+''';
+  }
+
   Future<bool> _testSlackToken(String token) async {
     try {
       final slackService = SlackService(
         botToken: token,
-        channel: '#general', // Just for testing
+        channel: '#general',
       );
 
-      // Try to send a test message to validate the token
-      // We'll use the auth.test endpoint instead of sending a message
       final response = await slackService.testConnection();
       return response;
     } catch (e) {
@@ -378,4 +704,18 @@ udara_cli build $clientName --test
     print('✅ Configuration reset successfully!');
     print('💡 Run "udara_cli setup" to reconfigure your settings.');
   }
+}
+
+// Helper Classes
+class ConfigCleanupResult {
+  final List<String> lines;
+  final bool modified;
+
+  ConfigCleanupResult(this.lines, this.modified);
+}
+
+class ConfigCreationResult {
+  final bool created;
+
+  ConfigCreationResult(this.created);
 }

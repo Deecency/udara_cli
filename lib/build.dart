@@ -39,7 +39,8 @@ class BuildCommand extends UdaraCommand {
       )
       ..addOption(
         'slack-channel',
-        help: 'Slack channel for notifications (e.g., #builds, @username). Defaults to #builds',
+        help:
+            'Slack channel for notifications (e.g., #builds, @username). Defaults to #builds',
         defaultsTo: '#builds',
       );
   }
@@ -98,7 +99,8 @@ class BuildCommand extends UdaraCommand {
       version = await helper.getVersionFromPubspec();
 
       await _notifyBuildStep('Build Started', client, platform, 'started',
-          additionalInfo: 'Version: $version, Type: $type${isTest ? ' (Test)' : ''}');
+          additionalInfo:
+              'Version: $version, Type: $type${isTest ? ' (Test)' : ''}');
 
       print('--- ⚙️ Phase 1: Validation & Setup ---');
 
@@ -116,13 +118,15 @@ class BuildCommand extends UdaraCommand {
 
       final clientAssetsPath = envVars['ASSETS_PATH']!;
 
-      await _notifyBuildStep('Validation & Setup', client, platform, 'completed');
+      await _notifyBuildStep(
+          'Validation & Setup', client, platform, 'completed');
 
       print('\n--- ✏️ Phase 2: Project Configuration ---');
 
-      await _notifyBuildStep('Project Configuration', client, platform, 'started');
+      await _notifyBuildStep(
+          'Project Configuration', client, platform, 'started');
 
-      await helper.ensureConfig();
+      //await helper.ensureConfig();
 
       await helper.backupAndModifyPubspec(clientAssetsPath, appIconPath);
 
@@ -130,15 +134,18 @@ class BuildCommand extends UdaraCommand {
 
       await helper.copyClientAssets(clientAssetsPath);
 
-      await _notifyBuildStep('Project Configuration', client, platform, 'completed');
+      await _notifyBuildStep(
+          'Project Configuration', client, platform, 'completed');
 
       print('\n--- 🚀 Phase 3: Running Build Commands ---');
 
       await runShell('flutter pub get');
 
-      await runShell('dart run rename setBundleId --targets ios,android --value "$bundleId"');
+      await runShell(
+          'dart run rename setBundleId --targets ios,android --value "$bundleId"');
 
-      await runShell('dart run rename setAppName --targets ios,android --value "$appName"');
+      await runShell(
+          'dart run rename setAppName --targets ios,android --value "$appName"');
 
       await runShell('dart run flutter_launcher_icons');
 
@@ -209,7 +216,8 @@ class BuildCommand extends UdaraCommand {
     final slackToken = await ConfigService.getSlackBotToken();
 
     if (slackToken == null) {
-      print('⚠️ Slack not configured. Run "udara_cli setup" to enable Slack notifications.');
+      print(
+          '⚠️ Slack not configured. Run "udara_cli setup" to enable Slack notifications.');
       return null;
     }
 
