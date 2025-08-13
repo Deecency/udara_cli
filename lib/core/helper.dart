@@ -214,23 +214,20 @@ class Helper {
     await _modifyIconsYaml(appIconPath);
   }
 
-  Future<void> _modifyIconsYaml(
-    String appIconPath,
-  ) async {
-    final pubspec = File('${command.projectDir}/flutter_launcher_icons.yaml');
-
-    if (!pubspec.existsSync()) {
+  Future<void> _modifyIconsYaml(String appIconPath) async {
+    final iconsYamlFile =
+        File('${command.projectDir}/flutter_launcher_icons.yaml');
+    if (!iconsYamlFile.existsSync()) {
       throw BuildException('`flutter_launcher_icons.yaml` not found!');
     }
 
-    command.pubspecBackup = await pubspec
+    // Create backup for flutter_launcher_icons.yaml (using separate field)
+    command.iconsYamlBackup = await iconsYamlFile
         .copy('${command.projectDir}/flutter_launcher_icons.yaml.bak');
-
     print(
-        'Backed up flutter_launcher_icons.yaml` to `flutter_launcher_icons.yaml.bak`.');
+        'Backed up `flutter_launcher_icons.yaml` to `flutter_launcher_icons.yaml.bak`.');
 
-    var lines = await pubspec.readAsLines();
-
+    var lines = await iconsYamlFile.readAsLines();
     final iconPathRegex = RegExp(r'(\s*image_path:\s*").*(".*)');
     final splashPathRegex = RegExp(r'(\s*image:\s*").*(".*)');
 
@@ -249,10 +246,10 @@ class Helper {
       return line;
     }).toList();
 
-    print('Updated `flutter_launcher_icons` image_path to `$appIconPath`');
-    print('Updated `splash_master` image to `$appIconPath`');
-
-    await pubspec.writeAsString(lines.join('\n'));
+    print('Updated `flutter_launcher_icons.yaml` image_path to `$appIconPath`');
+    print(
+        'Updated `flutter_launcher_icons.yaml` splash image to `$appIconPath`');
+    await iconsYamlFile.writeAsString(lines.join('\n'));
   }
 
   /// Copies the client-specific assets (e.g., images, branding files) to the
@@ -444,6 +441,7 @@ class Helper {
       );
       await command.renamedSplashAssetsDir!.rename(originalPath);
     }
+
     if (command.appNameForCleanup != null) {
       final storyboardFile = File(
         p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj',
@@ -458,22 +456,28 @@ class Helper {
       }
     }
 
+    // Restore pubspec.yaml backup
     if ((command.pubspecBackup?.existsSync() ?? false) &&
         !command.templatesWereAdded) {
       print('Restoring original `pubspec.yaml`...');
       await command.pubspecBackup!.rename('${command.projectDir}/pubspec.yaml');
     }
 
+    // Restore flutter_launcher_icons.yaml backup
+    if (command.iconsYamlBackup?.existsSync() ?? false) {
+      print('Restoring original `flutter_launcher_icons.yaml`...');
+      await command.iconsYamlBackup!
+          .rename('${command.projectDir}/flutter_launcher_icons.yaml');
+    }
+
     if (command.copiedAssetsDir != null &&
         command.copiedAssetsDir!.existsSync()) {
       print('Removing copied client assets...');
-
       await command.copiedAssetsDir!.delete(recursive: true);
     }
 
     if (command.rootEnvFile != null && command.rootEnvFile!.existsSync()) {
       print('Removing temporary .env file...');
-
       await command.rootEnvFile!.delete();
     }
 
@@ -482,14 +486,12 @@ class Helper {
 
     if (command.clientFontsCopied && targetFontsDir.existsSync()) {
       print('Removing copied client fonts...');
-
       await targetFontsDir.delete(recursive: true);
     }
 
     if (command.defaultFontsBackupDir != null &&
         command.defaultFontsBackupDir!.existsSync()) {
       print('Restoring default fonts...');
-
       await command.defaultFontsBackupDir!.rename(targetFontsDir.path);
     }
 

@@ -80,6 +80,7 @@ class BuildCommand extends UdaraCommand {
     • Client must have valid .env and asset files''';
 
   File? pubspecBackup;
+  File? iconsYamlBackup;
   Directory? copiedAssetsDir;
 
   File? rootEnvFile;
