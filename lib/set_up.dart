@@ -258,6 +258,8 @@ class SetupCommand extends UdaraCommand {
       throw BuildException('Could not find `assets:` section in pubspec.yaml');
     }
 
+    await pubspecFile.writeAsString(lines.join('\n'));
+
     print('\n📋 Next steps for each client:');
     print('   1. Update the .env and .env_test files with your configuration');
     print(
