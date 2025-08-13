@@ -211,6 +211,48 @@ class Helper {
     print('Updated `splash_master` image to `$appIconPath`');
 
     await pubspec.writeAsString(lines.join('\n'));
+    await _modifyIconsYaml(appIconPath);
+  }
+
+  Future<void> _modifyIconsYaml(
+    String appIconPath,
+  ) async {
+    final pubspec = File('${command.projectDir}/flutter_launcher_icons.yaml');
+
+    if (!pubspec.existsSync()) {
+      throw BuildException('`flutter_launcher_icons.yaml` not found!');
+    }
+
+    command.pubspecBackup = await pubspec
+        .copy('${command.projectDir}/flutter_launcher_icons.yaml.bak');
+
+    print(
+        'Backed up flutter_launcher_icons.yaml` to `flutter_launcher_icons.yaml.bak`.');
+
+    var lines = await pubspec.readAsLines();
+
+    final iconPathRegex = RegExp(r'(\s*image_path:\s*").*(".*)');
+    final splashPathRegex = RegExp(r'(\s*image:\s*").*(".*)');
+
+    lines = lines.map((line) {
+      if (line.contains('image_path:')) {
+        return line.replaceAllMapped(
+          iconPathRegex,
+          (match) => '${match.group(1)}$appIconPath${match.group(2)}',
+        );
+      } else if (line.contains('image:')) {
+        return line.replaceAllMapped(
+          splashPathRegex,
+          (match) => '${match.group(1)}$appIconPath${match.group(2)}',
+        );
+      }
+      return line;
+    }).toList();
+
+    print('Updated `flutter_launcher_icons` image_path to `$appIconPath`');
+    print('Updated `splash_master` image to `$appIconPath`');
+
+    await pubspec.writeAsString(lines.join('\n'));
   }
 
   /// Copies the client-specific assets (e.g., images, branding files) to the
