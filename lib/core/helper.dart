@@ -177,6 +177,7 @@ class Helper {
     const newAssetEntry2 = '    - .env';
     const lineToRemove = '    - clients/default/.env';
     final indexToReplace = lines.indexOf(lineToRemove);
+
     if (indexToReplace != -1) {
       lines[indexToReplace] = newAssetEntry2;
       print('Replaced asset path: `$lineToRemove` with `$newAssetEntry2`');

@@ -212,7 +212,8 @@ class SetupCommand extends UdaraCommand {
         .split(',')
         .map((name) => name.trim())
         .where((name) => name.isNotEmpty)
-        .toList();
+        .toList()
+      ..add('default');
 
     if (clientNames.isEmpty) {
       print('❌ No valid client names provided.');
@@ -505,6 +506,19 @@ splash_master:
     final templateLines = template.split('\n');
     lines.insertAll(insertIndex + 1, templateLines);
 
+    final assetsIndex = lines.indexWhere((line) => line.trim() == 'assets:');
+
+    if (assetsIndex != -1) {
+      // Define the new asset path you want to add
+      const newAssetEntry = '    - clients/default/.env';
+
+      // Insert the new line at the position immediately after 'assets:'
+      lines.insert(assetsIndex + 1, newAssetEntry);
+
+      print('Added new asset path: `$newAssetEntry`');
+    } else {
+      throw BuildException('Could not find `assets:` section in pubspec.yaml');
+    }
     await pubspecFile.writeAsString(lines.join('\n'));
     print('✅ Added splash_master configuration to pubspec.yaml');
   }
