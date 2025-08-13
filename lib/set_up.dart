@@ -248,7 +248,7 @@ class SetupCommand extends UdaraCommand {
 
     if (assetsIndex != -1) {
       // Define the new asset path you want to add
-      const newAssetEntry = '    - clients/default/.env';
+      const newAssetEntry = '    - clients/default/.env #do not remove this';
 
       // Insert the new line at the position immediately after 'assets:'
       lines.insert(assetsIndex + 1, newAssetEntry);
