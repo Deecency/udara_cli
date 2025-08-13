@@ -4,18 +4,31 @@ import 'package:yaml/yaml.dart';
 
 import 'core.dart';
 
+/// A helper class containing methods to perform various tasks related to the
+/// build process, such as file manipulation, configuration updates, and cleanup.
+///
+/// This class encapsulates the logic for preparing the project for a client-specific
+/// build, executing build steps, and reverting changes afterward.
 class Helper {
   final BuildCommand command;
 
   Helper(this.command);
 
+  /// Renames the generated build file (APK or AAB) to a more descriptive name.
+  ///
+  /// @param newFileName The new name for the file, without the extension.
+  /// @param type The type of build file, either "apk" or "aab".
+  /// @returns A [Future<File>] representing the renamed file.
+  /// @throws [BuildException] if the build file is not found or if the rename fails.
   Future<File> renameApk(String newFileName, String type) async {
     File buildFile;
 
     if (type == 'apk') {
-      buildFile = File('${command.projectDir}/build/app/outputs/apk/release/app-release.apk');
+      buildFile = File(
+          '${command.projectDir}/build/app/outputs/apk/release/app-release.apk');
     } else if (type == 'aab') {
-      buildFile = File('${command.projectDir}/build/app/outputs/bundle/release/app-release.aab');
+      buildFile = File(
+          '${command.projectDir}/build/app/outputs/bundle/release/app-release.aab');
     } else {
       throw BuildException(
         'Invalid build type: $type. Expected "apk" or "aab".',
@@ -42,13 +55,18 @@ class Helper {
     }
   }
 
+  /// Retrieves the version string from the project's `pubspec.yaml` file.
+  ///
+  /// @returns A [Future<String>] containing the version (e.g., "1.0.0+1").
+  /// @throws [BuildException] if `pubspec.yaml` or the version field is not found.
   Future<String> getVersionFromPubspec() async {
     final pubspecFile = File('${command.projectDir}/pubspec.yaml');
 
     if (!pubspecFile.existsSync()) {
       throw BuildException(
         'pubspec.yaml not found at `${pubspecFile.path}`.',
-        fix: 'Ensure you are running this command from the Flutter project root.',
+        fix:
+            'Ensure you are running this command from the Flutter project root.',
       );
     }
 
@@ -66,6 +84,13 @@ class Helper {
     return version;
   }
 
+  /// Sets up the build environment by copying a client-specific `.env` file
+  /// to the project root and parsing its variables.
+  ///
+  /// @param client The name of the client whose environment should be used.
+  /// @param isTest A boolean indicating whether to use the test environment (`.env_test`).
+  /// @returns A [Future<Map<String, String>>] of the parsed environment variables.
+  /// @throws [BuildException] if the environment file or required keys are missing.
   Future<Map<String, String>> setupEnvironment(
     String client,
     bool isTest,
@@ -121,6 +146,11 @@ class Helper {
     return envVars;
   }
 
+  /// Creates a backup of `pubspec.yaml` and modifies the original to include
+  /// client-specific asset paths and update app icon configurations.
+  ///
+  /// @param clientAssetsPath The path to the client's asset directory.
+  /// @param appIconPath The path to the client's app icon image.
   Future<void> backupAndModifyPubspec(
     String clientAssetsPath,
     String appIconPath,
@@ -131,7 +161,8 @@ class Helper {
       throw BuildException('`pubspec.yaml` not found!');
     }
 
-    command.pubspecBackup = await pubspec.copy('${command.projectDir}/pubspec.yaml.bak');
+    command.pubspecBackup =
+        await pubspec.copy('${command.projectDir}/pubspec.yaml.bak');
 
     print('Backed up `pubspec.yaml` to `pubspec.yaml.bak`.');
 
@@ -181,6 +212,10 @@ class Helper {
     await pubspec.writeAsString(lines.join('\n'));
   }
 
+  /// Copies the client-specific assets (e.g., images, branding files) to the
+  /// project's main `assets/branding` directory for the build.
+  ///
+  /// @param clientAssetsPath The path to the source client asset directory.
   Future<void> copyClientAssets(String clientAssetsPath) async {
     final sourceDir = Directory('${command.projectDir}/$clientAssetsPath');
 
@@ -194,7 +229,8 @@ class Helper {
 
     await targetParentDir.create(recursive: true);
 
-    final targetDir = Directory(p.join(targetParentDir.path, p.basename(sourceDir.path)));
+    final targetDir =
+        Directory(p.join(targetParentDir.path, p.basename(sourceDir.path)));
 
     if (targetDir.existsSync()) await targetDir.delete(recursive: true);
 
@@ -209,8 +245,13 @@ class Helper {
     command.copiedAssetsDir = targetDir;
   }
 
+  /// Manages client-specific fonts by backing up default fonts, copying the
+  /// client's fonts, and updating `pubspec.yaml` with the new font configuration.
+  ///
+  /// @param clientAssetsPath The path to the client's asset directory, which may contain a `fonts` subdirectory.
   Future<void> handleClientFonts(String clientAssetsPath) async {
-    final clientFontsDir = Directory(p.join(command.projectDir, clientAssetsPath, 'fonts'));
+    final clientFontsDir =
+        Directory(p.join(command.projectDir, clientAssetsPath, 'fonts'));
 
     if (!clientFontsDir.existsSync()) {
       print('📝 No client fonts directory found. Using default fonts.');
@@ -220,7 +261,8 @@ class Helper {
 
     print('📝 Client fonts directory found. Processing...');
 
-    final targetFontsDir = Directory(p.join(command.projectDir, 'assets', 'fonts'));
+    final targetFontsDir =
+        Directory(p.join(command.projectDir, 'assets', 'fonts'));
 
     if (targetFontsDir.existsSync()) {
       print('  -> Backing up default fonts...');
@@ -229,9 +271,11 @@ class Helper {
 
       if (backupDir.existsSync()) await backupDir.delete(recursive: true);
 
-      command.defaultFontsBackupDir = await targetFontsDir.rename(backupDir.path);
+      command.defaultFontsBackupDir =
+          await targetFontsDir.rename(backupDir.path);
 
-      print('  -> Default fonts backed up to `${command.defaultFontsBackupDir!.path}`');
+      print(
+          '  -> Default fonts backed up to `${command.defaultFontsBackupDir!.path}`');
     }
 
     print('  -> Copying client fonts to `${targetFontsDir.path}`...');
@@ -245,7 +289,8 @@ class Helper {
     final clientFontsConfig = File(p.join(clientFontsDir.path, 'fonts.yaml'));
 
     if (clientFontsConfig.existsSync()) {
-      print('  -> Found client font configuration. Applying to `pubspec.yaml`...');
+      print(
+          '  -> Found client font configuration. Applying to `pubspec.yaml`...');
 
       final pubspecFile = File('${command.projectDir}/pubspec.yaml');
 
@@ -267,15 +312,19 @@ class Helper {
 
       await pubspecFile.writeAsString(lines.join('\n'));
 
-      print('  -> Successfully updated `pubspec.yaml` with client font configuration.');
+      print(
+          '  -> Successfully updated `pubspec.yaml` with client font configuration.');
     } else {
       print(
           '  -> No `fonts.yaml` found in client assets. Manual `pubspec.yaml` update may be needed if font families changed.');
     }
   }
 
+  /// Fixes a common bug with Android adaptive icons by removing the problematic
+  /// `mipmap-anydpi-v26` directory before icon generation.
   Future<void> fixAndroidIconBug() async {
-    final buggyPath = Directory('${command.projectDir}/android/app/src/main/res/mipmap-anydpi-v26');
+    final buggyPath = Directory(
+        '${command.projectDir}/android/app/src/main/res/mipmap-anydpi-v26');
 
     if (buggyPath.existsSync()) {
       print('Found and removing problematic Android v26 icon directory.');
@@ -284,34 +333,46 @@ class Helper {
     }
   }
 
+  /// Updates iOS-specific splash screen configurations by renaming asset directories
+  /// and modifying the `LaunchScreen.storyboard` file.
+  ///
+  /// @param appName The name of the app, used to create a unique asset name.
+  /// @throws [BuildException] if required asset directories or files are not found.
   Future<void> updateIosSplash(String appName) async {
     final assetsDir = Directory(
-      p.join(command.projectDir, 'ios', 'Runner', 'Assets.xcassets', 'LaunchImage.imageset'),
+      p.join(command.projectDir, 'ios', 'Runner', 'Assets.xcassets',
+          'LaunchImage.imageset'),
     );
     final newAssetsDir = Directory(
-      p.join(
-          command.projectDir, 'ios', 'Runner', 'Assets.xcassets', 'LaunchImage$appName.imageset'),
+      p.join(command.projectDir, 'ios', 'Runner', 'Assets.xcassets',
+          'LaunchImage$appName.imageset'),
     );
     final storyboardFile = File(
-      p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
+      p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj',
+          'LaunchScreen.storyboard'),
     );
 
     if (!await assetsDir.exists()) {
-      throw BuildException('Default splash asset directory not found after running splash_master.',
-          fix: 'Ensure `dart run splash_master:create` ran successfully.');
+      throw BuildException(
+        'Default splash asset directory not found after running splash_master.',
+        fix: 'Ensure `dart run splash_master:create` ran successfully.',
+      );
     }
 
-    print('🔄 Renaming splash asset directory to ${p.basename(newAssetsDir.path)}...');
+    print(
+        '🔄 Renaming splash asset directory to ${p.basename(newAssetsDir.path)}...');
     await assetsDir.rename(newAssetsDir.path);
     command.renamedSplashAssetsDir = newAssetsDir;
 
     if (!await storyboardFile.exists()) {
-      throw BuildException('LaunchScreen.storyboard not found at ${storyboardFile.path}.');
+      throw BuildException(
+          'LaunchScreen.storyboard not found at ${storyboardFile.path}.');
     }
 
     print('✏️ Updating LaunchScreen.storyboard...');
     var storyboardContent = await storyboardFile.readAsString();
-    storyboardContent = storyboardContent.replaceAll('LaunchImage', 'LaunchImage$appName');
+    storyboardContent =
+        storyboardContent.replaceAll('LaunchImage', 'LaunchImage$appName');
     await storyboardFile.writeAsString(storyboardContent);
 
     print('🛠️ Fixing duplicate lines in LaunchScreen.storyboard...');
@@ -326,6 +387,8 @@ class Helper {
     await storyboardFile.writeAsString(newLines.join('\n'));
   }
 
+  /// Reverts all changes made during the build process to restore the project
+  /// to its original state. This includes restoring backups and deleting temporary files.
   Future<void> cleanup() async {
     if (command.renamedSplashAssetsDir?.existsSync() ?? false) {
       print('🔄 Reverting iOS splash asset directory...');
@@ -340,22 +403,26 @@ class Helper {
     }
     if (command.appNameForCleanup != null) {
       final storyboardFile = File(
-        p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
+        p.join(command.projectDir, 'ios', 'Runner', 'Base.lproj',
+            'LaunchScreen.storyboard'),
       );
       if (await storyboardFile.exists()) {
         print('✏️ Reverting LaunchScreen.storyboard changes...');
         var content = await storyboardFile.readAsString();
-        content = content.replaceAll('LaunchImage${command.appNameForCleanup}', 'LaunchImage');
+        content = content.replaceAll(
+            'LaunchImage${command.appNameForCleanup}', 'LaunchImage');
         await storyboardFile.writeAsString(content);
       }
     }
 
-    if ((command.pubspecBackup?.existsSync() ?? false) && !command.templatesWereAdded) {
+    if ((command.pubspecBackup?.existsSync() ?? false) &&
+        !command.templatesWereAdded) {
       print('Restoring original `pubspec.yaml`...');
       await command.pubspecBackup!.rename('${command.projectDir}/pubspec.yaml');
     }
 
-    if (command.copiedAssetsDir != null && command.copiedAssetsDir!.existsSync()) {
+    if (command.copiedAssetsDir != null &&
+        command.copiedAssetsDir!.existsSync()) {
       print('Removing copied client assets...');
 
       await command.copiedAssetsDir!.delete(recursive: true);
@@ -367,7 +434,8 @@ class Helper {
       await command.rootEnvFile!.delete();
     }
 
-    final targetFontsDir = Directory(p.join(command.projectDir, 'assets', 'fonts'));
+    final targetFontsDir =
+        Directory(p.join(command.projectDir, 'assets', 'fonts'));
 
     if (command.clientFontsCopied && targetFontsDir.existsSync()) {
       print('Removing copied client fonts...');
@@ -375,7 +443,8 @@ class Helper {
       await targetFontsDir.delete(recursive: true);
     }
 
-    if (command.defaultFontsBackupDir != null && command.defaultFontsBackupDir!.existsSync()) {
+    if (command.defaultFontsBackupDir != null &&
+        command.defaultFontsBackupDir!.existsSync()) {
       print('Restoring default fonts...');
 
       await command.defaultFontsBackupDir!.rename(targetFontsDir.path);
@@ -390,6 +459,10 @@ class Helper {
     print('✅ Cleanup complete.');
   }
 
+  /// Ensures that all necessary dependencies and configuration files for app icons
+  /// and splash screens are present, adding them if they are missing.
+  ///
+  /// @throws [BuildException] if essential configuration files are generated and require user input.
   Future<void> ensureConfig() async {
     print('🔎 Ensuring all necessary configurations are present...');
     final pubspecFile = File(p.join(command.projectDir, 'pubspec.yaml'));
@@ -399,113 +472,292 @@ class Helper {
 
     var pubspecYaml = loadYaml(await pubspecFile.readAsString());
     var lines = await pubspecFile.readAsLines();
-    var configAdded = false;
+    var configModified = false;
+    var needsRegeneration = false;
 
-    pubspecYaml = await _ensureDependency('rename', pubspecFile, pubspecYaml);
-    pubspecYaml = await _ensureDependency('flutter_launcher_icons', pubspecFile, pubspecYaml);
-    pubspecYaml = await _ensureDependency('splash_master', pubspecFile, pubspecYaml);
+    // Ensure dependencies are present
+    pubspecYaml =
+        await _ensureDependency('rename', pubspecFile, pubspecYaml, command);
+    pubspecYaml = await _ensureDependency(
+        'flutter_launcher_icons', pubspecFile, pubspecYaml, command);
+    pubspecYaml = await _ensureDependency(
+        'splash_master', pubspecFile, pubspecYaml, command);
 
-    final flutterIndex = lines.indexWhere((l) => l.trim() == 'flutter:');
-    if (flutterIndex == -1) {
-      throw BuildException('A `flutter:` section could not be found in your pubspec.yaml.');
+    // Clean up existing flutter_launcher_icons configuration from pubspec.yaml
+    final cleanupResult = await _cleanupOldConfigurations(pubspecFile, lines);
+    if (cleanupResult.modified) {
+      configModified = true;
+      lines = cleanupResult.lines;
+      print(
+          '🧹 Removed old flutter_launcher_icons configuration from pubspec.yaml');
     }
 
-    var insertIndex = lines.indexWhere((l) => l.trim().startsWith('uses-material-design:'));
-    if (insertIndex == -1) insertIndex = flutterIndex;
-
-    if (pubspecYaml['flutter_launcher_icons'] == null &&
-        pubspecYaml['flutter']?['flutter_launcher_icons'] == null) {
-      print('⚠️ `flutter_launcher_icons` configuration not found. Adding a template...');
-      configAdded = true;
-      final template = _dedent('''
-        # ------------------ ADDED BY UDARA_CLI ------------------
-        # TODO: Please fill in the image_path for your app icon.
-        flutter_launcher_icons:
-          image_path: "assets/logo/app_icon.png" # <-- IMPORTANT: CHANGE THIS PATH DEFAULT LAUNCHER ICON IMAGE
-          android: true
-          ios: true
-        # ---------------------------------------------------------
-        ''');
-      lines.insert(insertIndex + 1, template);
+    // Generate flutter_launcher_icons.yaml if it doesn't exist
+    final iconsConfigResult = await _ensureFlutterLauncherIconsConfig();
+    if (iconsConfigResult.created) {
+      needsRegeneration = true;
+      print('📄 Created flutter_launcher_icons.yaml configuration file');
     }
 
-    if (pubspecYaml['splash_master'] == null && pubspecYaml['flutter']?['splash_master'] == null) {
-      print('⚠️ `splash_master` configuration not found. Adding a template...');
-      configAdded = true;
-      final template = _dedent('''
-        # ------------------ ADDED BY UDARA_CLI ------------------
-        # TODO: Please fill in the image path for your splash screen.
-        splash_master:
-          color: "#FFFFFF"
-          image: "assets/logo/splash_icon.png" # <-- IMPORTANT: CHANGE THIS PATH TO DEFAULT APP SPLASH IMAGE
-          ios_content_mode: "center"
-          android_gravity: "center"
-        # ---------------------------------------------------------
-        ''');
-      lines.insert(insertIndex + 1, template);
+    // Ensure splash_master configuration in pubspec.yaml (since it doesn't have a generator)
+    final splashResult =
+        await _ensureSplashMasterConfig(pubspecFile, lines, pubspecYaml);
+    if (splashResult.modified) {
+      configModified = true;
+      lines = splashResult.lines;
     }
 
-    if (configAdded) {
-      final finalContent = lines.join('\n').replaceAllMapped(
-            RegExp(r'(# --- ADDED BY UDARA_CLI ---[\s\S]*?# ---+)', multiLine: true),
-            (match) => match.group(0)!.replaceAllMapped(
-                RegExp(r'^.', multiLine: true), (lineMatch) => '  ${lineMatch.group(0)}'),
-          );
-
-      await pubspecFile.writeAsString(finalContent);
+    // Write changes to pubspec.yaml if modified
+    if (configModified) {
+      await pubspecFile.writeAsString(lines.join('\n'));
       command.templatesWereAdded = true;
+    }
+
+    // If we need regeneration, stop here and ask user to configure
+    if (needsRegeneration) {
       throw BuildException(
-        'Configuration templates have been added to your pubspec.yaml.',
-        fix: 'Please open pubspec.yaml, fill in the required values, and run the build again.',
+        'Configuration files have been generated for flutter_launcher_icons.',
+        fix: 'Please:\n'
+            '1. Open flutter_launcher_icons.yaml and configure your app icon path\n'
+            '2. Open pubspec.yaml and configure splash_master settings\n'
+            '3. Run the build command again',
       );
     }
 
     print('✅ All necessary configurations are present.');
   }
 
-  Future<YamlMap> _ensureDependency(
-      String packageName, File pubspecFile, YamlMap pubspecYaml) async {
-    final devDeps = pubspecYaml['dev_dependencies'] as YamlMap?;
-    final regularDeps = pubspecYaml['dependencies'] as YamlMap?;
+  /// Clean up old flutter_launcher_icons configuration from pubspec.yaml
+  Future<ConfigCleanupResult> _cleanupOldConfigurations(
+      File pubspecFile, List<String> lines) async {
+    var modified = false;
+    var cleanedLines = <String>[];
+    var skipSection = false;
+    var inUdaraSection = false;
+    var sectionIndentLevel = 0;
 
-    if (devDeps?[packageName] == null && regularDeps?[packageName] == null) {
-      print('⚠️ `$packageName` dependency not found. Adding it now...');
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final trimmedLine = line.trim();
 
-      await command.runShell('flutter pub add --dev $packageName');
+      // Check if we're entering a flutter_launcher_icons section
+      if (trimmedLine.startsWith('flutter_launcher_icons:')) {
+        skipSection = true;
+        modified = true;
+        sectionIndentLevel = _getIndentLevel(line);
 
-      final content = await pubspecFile.readAsString();
-      return loadYaml(content) as YamlMap;
+        // Check if this is within a Udara CLI section
+        if (i > 0 && lines[i - 1].trim().contains('ADDED BY UDARA_CLI')) {
+          inUdaraSection = true;
+        }
+
+        print(
+            '🗑️  Removing flutter_launcher_icons configuration (line ${i + 1})');
+        continue;
+      }
+
+      // If we're skipping a section, check if we should stop
+      if (skipSection) {
+        final currentIndent = _getIndentLevel(line);
+
+        // Stop skipping if we've reached a line with equal or lesser indentation
+        // (unless it's empty or a comment)
+        if (trimmedLine.isNotEmpty &&
+            !trimmedLine.startsWith('#') &&
+            currentIndent <= sectionIndentLevel) {
+          skipSection = false;
+          inUdaraSection = false;
+
+          // Don't skip this line, process it normally
+          cleanedLines.add(line);
+        }
+        // Skip lines within the section, including Udara CLI markers
+        continue;
+      }
+
+      // Remove Udara CLI section markers if they're now empty
+      if (inUdaraSection && trimmedLine.contains('ADDED BY UDARA_CLI')) {
+        continue;
+      }
+
+      cleanedLines.add(line);
     }
 
-    return pubspecYaml;
+    return ConfigCleanupResult(cleanedLines, modified);
+  }
+
+  /// Get the indentation level of a line
+  int _getIndentLevel(String line) {
+    var indent = 0;
+    for (var char in line.runes) {
+      if (char == 32) {
+        // space
+        indent++;
+      } else if (char == 9) {
+        // tab
+        indent += 2; // treat tab as 2 spaces
+      } else {
+        break;
+      }
+    }
+    return indent;
+  }
+
+  /// Ensure flutter_launcher_icons.yaml exists with proper configuration
+  Future<ConfigCreationResult> _ensureFlutterLauncherIconsConfig() async {
+    final configFile =
+        File(p.join(command.projectDir, 'flutter_launcher_icons.yaml'));
+
+    if (await configFile.exists()) {
+      print('✅ flutter_launcher_icons.yaml already exists');
+      return ConfigCreationResult(false);
+    }
+
+    final template = '''# Flutter Launcher Icons Configuration
+# Generated by Udara CLI
+#
+# This file configures app icons for your Flutter project.
+# For more options, see: https://pub.dev/packages/flutter_launcher_icons
+
+flutter_launcher_icons:
+  # IMPORTANT: Update this path to your actual app icon
+  image_path: "assets/logo/app_icon.png"
+
+  # Platform-specific settings
+  android: true
+  ios: true
+
+  # Optional: Custom icon paths for different platforms
+  # android_icon_path: "assets/android_icon.png"
+  # ios_icon_path: "assets/ios_icon.png"
+
+  # Optional: Adaptive icons for Android (API 26+)
+  # adaptive_icon_background: "#FFFFFF"
+  # adaptive_icon_foreground: "assets/logo/app_icon_foreground.png"
+
+  # Optional: Custom sizes
+  # min_sdk_android: 21
+
+  # Optional: Remove the old launcher icon
+  # remove_alpha_ios: true
+
+# Additional configuration options:
+# - background_color_ios: Set iOS icon background color
+# - theme_color: Set theme color for adaptive icons
+# - web: Configure web app icons
+# - windows: Configure Windows app icons
+# - macos: Configure macOS app icons
+# - linux: Configure Linux app icons
+
+# To generate icons after configuration:
+# Run: dart run flutter_launcher_icons:generate
+''';
+
+    await configFile.writeAsString(template);
+    return ConfigCreationResult(true);
+  }
+
+  /// Ensure splash_master configuration exists in pubspec.yaml
+  Future<SplashConfigResult> _ensureSplashMasterConfig(
+      File pubspecFile, List<String> lines, YamlMap pubspecYaml) async {
+    // Check if splash_master configuration already exists
+    if (pubspecYaml['splash_master'] != null ||
+        pubspecYaml['flutter']?['splash_master'] != null) {
+      print('✅ splash_master configuration already exists');
+      return SplashConfigResult(lines, false);
+    }
+
+    print('⚠️ splash_master configuration not found. Adding template...');
+
+    // Find the flutter section
+    final flutterIndex = lines.indexWhere((l) => l.trim() == 'flutter:');
+    if (flutterIndex == -1) {
+      throw BuildException(
+          'A `flutter:` section could not be found in your pubspec.yaml.');
+    }
+
+    // Find insertion point (after uses-material-design or at flutter section)
+    var insertIndex =
+        lines.indexWhere((l) => l.trim().startsWith('uses-material-design:'));
+    if (insertIndex == -1) insertIndex = flutterIndex;
+
+    final template = '''
+# ------------------ ADDED BY UDARA_CLI ------------------
+# Splash screen configuration
+# For more options, see: https://pub.dev/packages/splash_master
+splash_master:
+  # IMPORTANT: Update this path to your actual splash screen image
+  image: "assets/logo/splash_icon.png"
+
+  # Background color (hex format)
+  color: "#FFFFFF"
+
+  # Platform-specific settings
+  ios_content_mode: "center"
+  android_gravity: "center"
+
+  # Optional: Additional customization
+  # android_fullscreen: true
+  # ios_hide_status_bar: true
+  # web_image_mode: "center"
+# ---------------------------------------------------------''';
+
+    // Insert the template
+    final templateLines = template.split('\n');
+    lines.insertAll(insertIndex + 1, templateLines);
+
+    return SplashConfigResult(lines, true);
+  }
+
+  /// Generates app icons by running the `flutter_launcher_icons` package command.
+  Future<void> generateFlutterLauncherIcons() async {
+    print('🎨 Generating app icons using flutter_launcher_icons...');
+
+    // Use the new generator command
+    await command.runShell('dart run flutter_launcher_icons:generate');
+
+    print('✅ App icons generated successfully');
   }
 }
 
-/// Removes common leading whitespace from a multi-line string.
-String _dedent(String text) {
-  var lines = text.split('\n');
-  if (lines.isEmpty) return '';
+/// Checks if a dependency exists in `pubspec.yaml` and adds it as a dev
+/// dependency if it's missing.
+Future<YamlMap> _ensureDependency(String packageName, File pubspecFile,
+    YamlMap pubspecYaml, BuildCommand command) async {
+  final devDeps = pubspecYaml['dev_dependencies'] as YamlMap?;
+  final regularDeps = pubspecYaml['dependencies'] as YamlMap?;
 
-  if (lines.first.trim().isEmpty) {
-    lines.removeAt(0);
+  if (devDeps?[packageName] == null && regularDeps?[packageName] == null) {
+    print('⚠️ `$packageName` dependency not found. Adding it now...');
+    await command.runShell('flutter pub add --dev $packageName');
+
+    // Reload the pubspec after adding dependency
+    final content = await pubspecFile.readAsString();
+    return loadYaml(content) as YamlMap;
   }
 
-  var indent = -1;
-  for (final line in lines) {
-    if (line.trim().isNotEmpty) {
-      final currentIndent = line.indexOf(RegExp(r'[^ ]'));
-      if (indent == -1 || currentIndent < indent) {
-        indent = currentIndent;
-      }
-    }
-  }
+  return pubspecYaml;
+}
 
-  if (indent <= 0) return text;
+/// A helper class to hold the result of a configuration cleanup operation.
+class ConfigCleanupResult {
+  final List<String> lines;
+  final bool modified;
 
-  return lines.map((line) {
-    if (line.length > indent) {
-      return line.substring(indent);
-    }
-    return line;
-  }).join('\n');
+  ConfigCleanupResult(this.lines, this.modified);
+}
+
+/// A helper class to hold the result of a configuration file creation operation.
+class ConfigCreationResult {
+  final bool created;
+
+  ConfigCreationResult(this.created);
+}
+
+/// A helper class to hold the result of updating splash screen configuration.
+class SplashConfigResult {
+  final List<String> lines;
+  final bool modified;
+
+  SplashConfigResult(this.lines, this.modified);
 }

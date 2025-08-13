@@ -1,1 +1,102 @@
-import 'dart:convert';import 'dart:io';import 'package:path/path.dart' as path;class ConfigService {  static const String _configFileName = '.udara_cli_config.json';  /// Get the config file path in user's home directory  static String get _configFilePath {    final homeDir = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';    return path.join(homeDir, _configFileName);  }  /// Load configuration from file  static Future<Map<String, dynamic>> loadConfig() async {    final configFile = File(_configFilePath);    if (!configFile.existsSync()) {      return {};    }    try {      final content = await configFile.readAsString();      return jsonDecode(content) as Map<String, dynamic>;    } catch (e) {      print('Warning: Failed to load config file: $e');      return {};    }  }  /// Save configuration to file  static Future<void> saveConfig(Map<String, dynamic> config) async {    final configFile = File(_configFilePath);    try {      await configFile.writeAsString(        const JsonEncoder.withIndent('  ').convert(config),      );    } catch (e) {      print('Warning: Failed to save config file: $e');    }  }  /// Get a specific config value  static Future<T?> getConfigValue<T>(String key) async {    final config = await loadConfig();    return config[key] as T?;  }  /// Set a specific config value  static Future<void> setConfigValue(String key, dynamic value) async {    final config = await loadConfig();    config[key] = value;    await saveConfig(config);  }  /// Check if Slack is configured  static Future<bool> isSlackConfigured() async {    final token = await getConfigValue<String>('slack_bot_token');    return token != null && token.isNotEmpty;  }  /// Get Slack bot token  static Future<String?> getSlackBotToken() async {    return await getConfigValue<String>('slack_bot_token');  }  /// Set Slack bot token  static Future<void> setSlackBotToken(String token) async {    await setConfigValue('slack_bot_token', token);  }  /// Remove Slack configuration  static Future<void> removeSlackConfig() async {    final config = await loadConfig();    config.remove('slack_bot_token');    await saveConfig(config);  }  /// Show current configuration (without sensitive data)  static Future<void> showConfig() async {    final config = await loadConfig();    final isSlackConfigured = await ConfigService.isSlackConfigured();    print('\n📋 Current CLI Configuration:');    print('─' * 40);    print('Slack Notifications: ${isSlackConfigured ? '✅ Enabled' : '❌ Disabled'}');    if (isSlackConfigured) {      final token = await getSlackBotToken();      final maskedToken = token!.length > 12 ? '${token.substring(0, 12)}...' : '***';      print('Slack Bot Token: $maskedToken');    }    print('Config File: $_configFilePath');    print('─' * 40);  }}
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as path;
+
+class ConfigService {
+  static const String _configFileName = '.udara_cli_config.json';
+
+  /// Get the config file path in user's home directory
+  static String get _configFilePath {
+    final homeDir = Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        '.';
+    return path.join(homeDir, _configFileName);
+  }
+
+  /// Load configuration from file
+  static Future<Map<String, dynamic>> loadConfig() async {
+    final configFile = File(_configFilePath);
+
+    if (!configFile.existsSync()) {
+      return {};
+    }
+
+    try {
+      final content = await configFile.readAsString();
+      return jsonDecode(content) as Map<String, dynamic>;
+    } catch (e) {
+      print('Warning: Failed to load config file: $e');
+      return {};
+    }
+  }
+
+  /// Save configuration to file
+  static Future<void> saveConfig(Map<String, dynamic> config) async {
+    final configFile = File(_configFilePath);
+
+    try {
+      await configFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(config),
+      );
+    } catch (e) {
+      print('Warning: Failed to save config file: $e');
+    }
+  }
+
+  /// Get a specific config value
+  static Future<T?> getConfigValue<T>(String key) async {
+    final config = await loadConfig();
+    return config[key] as T?;
+  }
+
+  /// Set a specific config value
+  static Future<void> setConfigValue(String key, dynamic value) async {
+    final config = await loadConfig();
+    config[key] = value;
+    await saveConfig(config);
+  }
+
+  /// Check if Slack is configured
+  static Future<bool> isSlackConfigured() async {
+    final token = await getConfigValue<String>('slack_bot_token');
+    return token != null && token.isNotEmpty;
+  }
+
+  /// Get Slack bot token
+  static Future<String?> getSlackBotToken() async {
+    return await getConfigValue<String>('slack_bot_token');
+  }
+
+  /// Set Slack bot token
+  static Future<void> setSlackBotToken(String token) async {
+    await setConfigValue('slack_bot_token', token);
+  }
+
+  /// Remove Slack configuration
+  static Future<void> removeSlackConfig() async {
+    final config = await loadConfig();
+    config.remove('slack_bot_token');
+    await saveConfig(config);
+  }
+
+  /// Show current configuration (without sensitive data)
+  static Future<void> showConfig() async {
+    final isSlackConfigured = await ConfigService.isSlackConfigured();
+
+    print('\n📋 Current CLI Configuration:');
+    print('─' * 40);
+    print(
+        'Slack Notifications: ${isSlackConfigured ? '✅ Enabled' : '❌ Disabled'}');
+
+    if (isSlackConfigured) {
+      final token = await getSlackBotToken();
+      final maskedToken =
+          token!.length > 12 ? '${token.substring(0, 12)}...' : '***';
+      print('Slack Bot Token: $maskedToken');
+    }
+
+    print('Config File: $_configFilePath');
+    print('─' * 40);
+  }
+}
