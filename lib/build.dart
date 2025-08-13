@@ -50,7 +50,34 @@ class BuildCommand extends UdaraCommand {
 
   @override
   final String description =
-      'Builds a whitelabel of the Flutter project for a specific client. To run example -> `udara_cli build --client clientA --platform android --test`';
+      '''Build a whitelabeled version of your Flutter app for a specific client.
+
+  🎯 USAGE:
+    udara_cli build --client <CLIENT_NAME> [OPTIONS]
+
+  📋 EXAMPLES:
+    # Build Android APK for 'apple' client (production)
+    udara_cli build --client apple
+
+    # Build test version with Slack notifications
+    udara_cli build --client google --test --slack --slack-channel #dev-builds
+
+    # Build iOS version
+    udara_cli build --client microsoft --platform ios
+
+  🔧 WHAT THIS DOES:
+    1. Loads client-specific configuration (.env or .env_test)
+    2. Updates app name, bundle ID, and branding
+    3. Generates custom icons and splash screens
+    4. Builds the app with client-specific assets
+    5. Renames output files with client name and version
+    6. Sends Slack notifications (if enabled)
+    7. Cleans up temporary changes and reverts project to default state
+
+  ⚠️  PREREQUISITES:
+    • Project must be set up with "udara_cli setup"
+    • Client directory must exist in clients/ folder
+    • Client must have valid .env and asset files''';
 
   File? pubspecBackup;
   Directory? copiedAssetsDir;

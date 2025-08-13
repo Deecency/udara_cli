@@ -30,14 +30,49 @@ class SetupCommand extends UdaraCommand {
   final String name = 'setup';
 
   @override
-  final String description =
-      '''Configure CLI settings and initialize project structure.
+  final String description = '''Configure your project for whitelabel builds.
 
-Usage modes:
-  udara_cli setup                    # Configure project dependencies and structure
-  udara_cli setup --clients a,b,c   # Initialize specific client directories
-  udara_cli setup --notify           # Configure Slack notifications only
-  udara_cli setup --reset            # Reset all settings''';
+  🎯 USAGE MODES:
+
+    📦 PROJECT SETUP (Default)
+      udara_cli setup
+      └─ Install dependencies, create config files, clean old settings
+
+    🏢 CLIENT INITIALIZATION
+      udara_cli setup --clients <NAMES>
+      └─ Create client directories with templates
+      └─ Example: udara_cli setup --clients apple,google,microsoft
+
+    📱 NOTIFICATION SETUP
+      udara_cli setup --notify
+      └─ Configure Slack bot token and notification preferences
+
+    🔄 RESET EVERYTHING
+      udara_cli setup --reset
+      └─ Remove all stored configurations and start fresh
+
+  📋 EXAMPLES:
+    # First-time project setup
+    udara_cli setup
+
+    # Add new clients
+    udara_cli setup --clients newclient,anotherclient
+
+    # Configure Slack notifications
+    udara_cli setup --notify
+
+  🔧 PROJECT SETUP INCLUDES:
+    • Installing required dependencies (rename, flutter_launcher_icons, splash_master)
+    • Creating flutter_launcher_icons.yaml configuration
+    • Adding splash_master configuration to pubspec.yaml
+    • Cleaning up old configuration entries
+
+  🏢 CLIENT SETUP INCLUDES:
+    • Creating clients/[name] directory structure
+    • Generating .env and .env_test templates
+    • Creating placeholder logo files
+    • Setting up fonts directory
+    • Generating client-specific README''';
 
   @override
   Future<void> run() async {
