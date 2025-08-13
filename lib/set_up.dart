@@ -149,7 +149,7 @@ class SetupCommand extends UdaraCommand {
     await _ensureConfigurationFiles();
 
     print('\n--- 🧹 Phase 3: Cleanup Old Config ---');
-    await _cleanupOldConfigurations();
+    // await _cleanupOldConfigurations();
   }
 
   /// Ensure all required dependencies are installed
@@ -189,22 +189,22 @@ class SetupCommand extends UdaraCommand {
   }
 
   /// Clean up old configurations from pubspec.yaml
-  Future<void> _cleanupOldConfigurations() async {
-    print('🧹 Cleaning up old configuration entries...');
+  // Future<void> _cleanupOldConfigurations() async {
+  //   print('🧹 Cleaning up old configuration entries...');
 
-    final pubspecFile = File(path.join(Directory.current.path, 'pubspec.yaml'));
-    final lines = await pubspecFile.readAsLines();
+  //   final pubspecFile = File(path.join(Directory.current.path, 'pubspec.yaml'));
+  //   final lines = await pubspecFile.readAsLines();
 
-    final cleanupResult = await _cleanupOldFlutterLauncherIconsConfig(lines);
+  //   final cleanupResult = await _cleanupOldFlutterLauncherIconsConfig(lines);
 
-    if (cleanupResult.modified) {
-      await pubspecFile.writeAsString(cleanupResult.lines.join('\n'));
-      print(
-          '✅ Removed old flutter_launcher_icons configuration from pubspec.yaml');
-    } else {
-      print('✅ No old configurations found to clean up');
-    }
-  }
+  //   if (cleanupResult.modified) {
+  //     await pubspecFile.writeAsString(cleanupResult.lines.join('\n'));
+  //     print(
+  //         '✅ Removed old flutter_launcher_icons configuration from pubspec.yaml');
+  //   } else {
+  //     print('✅ No old configurations found to clean up');
+  //   }
+  // }
 
   /// Initialize client directories
   Future<void> _initializeClients(String clientsInput) async {
