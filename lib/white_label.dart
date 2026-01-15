@@ -88,7 +88,6 @@ class WhiteLabelCommand extends UdaraCommand {
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
     final client = argResults!['client'] as String;
-    final platform = argResults!['platform'] as String;
     final type = argResults!['type'] as String;
     final isTest = argResults!['test'] as bool;
     final enableSlack = argResults!['slack'] as bool;
@@ -105,7 +104,7 @@ class WhiteLabelCommand extends UdaraCommand {
       // PHASE 1: VALIDATION & SETUP
       print('--- ⚙️ Phase 1: Validation & Setup ---');
       version = await config.getPubspecVersion();
-      await _notifyBuildStep('Build Started', client, platform, 'started',
+      await _notifyBuildStep('Whitelabel Started', client, '', 'started',
           additionalInfo: 'Version: $version, Type: $type');
 
       final envVars = await config.parseEnvFile(
@@ -121,8 +120,7 @@ class WhiteLabelCommand extends UdaraCommand {
 
       // PHASE 2: PROJECT CONFIGURATION
       print('\n--- ✏️ Phase 2: Project Configuration ---');
-      await _notifyBuildStep(
-          'Project Configuration', client, platform, 'started');
+      await _notifyBuildStep('Project Configuration', client, '', 'started');
 
       await config.createBackup(File('$projectDir/pubspec.yaml'));
       await config
@@ -153,7 +151,7 @@ class WhiteLabelCommand extends UdaraCommand {
     } catch (e) {
       buildSuccess = false;
       errorMessage = e.toString();
-      await _notifyBuildStep('Build Process', client, platform, 'failed',
+      await _notifyBuildStep('Build Process', client, '', 'failed',
           errorMessage: errorMessage);
       rethrow; // Ensure cleanup runs but user sees the error
     } finally {
@@ -169,7 +167,7 @@ class WhiteLabelCommand extends UdaraCommand {
         final buildDuration = DateTime.now().difference(buildStartTime!);
         await slackService!.sendBuildSummary(
           client: client,
-          platform: platform,
+          platform: '',
           type: type,
           version: version,
           success: buildSuccess,
