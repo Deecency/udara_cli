@@ -133,6 +133,11 @@ class WhiteLabelCommand extends UdaraCommand {
       print(
           'Updated `flutter_launcher_icons.yaml` image_path to `$appIconPath`');
 
+      await config.updateYamlValue(File('$projectDir/pubspec.yaml'),
+          ['splash_master', 'image'], appIconPath);
+
+      print('Updated `pubspec.yaml` splash_master image to `$appIconPath`');
+
       await whiteLabel.syncBrandingAssets(client, clientAssetsPath);
       await whiteLabel.applyClientFonts(clientAssetsPath);
 
