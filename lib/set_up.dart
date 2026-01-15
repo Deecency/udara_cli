@@ -1,7 +1,7 @@
 import 'package:path/path.dart' as path;
 import 'package:udara_cli/core/core.dart';
-import 'package:udara_cli/services/config_service.dart';
-import 'package:udara_cli/services/slack_service.dart';
+import 'package:udara_cli/core/services/config_service.dart';
+import 'package:udara_cli/core/services/slack_service.dart';
 import 'package:yaml/yaml.dart';
 
 class SetupCommand extends UdaraCommand {
@@ -534,45 +534,6 @@ splash_master:
     print('✅ Added splash_master configuration to pubspec.yaml');
   }
 
-  Future<ConfigCleanupResult> _cleanupOldFlutterLauncherIconsConfig(
-      List<String> lines) async {
-    var modified = false;
-    var cleanedLines = <String>[];
-    var skipSection = false;
-    var sectionIndentLevel = 0;
-
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      final trimmedLine = line.trim();
-
-      // Check if we're entering a flutter_launcher_icons section
-      if (trimmedLine.startsWith('flutter_launcher_icons:')) {
-        skipSection = true;
-        modified = true;
-        sectionIndentLevel = _getIndentLevel(line);
-        continue;
-      }
-
-      // If we're skipping a section, check if we should stop
-      if (skipSection) {
-        final currentIndent = _getIndentLevel(line);
-
-        // Stop skipping if we've reached a line with equal or lesser indentation
-        if (trimmedLine.isNotEmpty &&
-            !trimmedLine.startsWith('#') &&
-            currentIndent <= sectionIndentLevel) {
-          skipSection = false;
-          cleanedLines.add(line);
-        }
-        continue;
-      }
-
-      cleanedLines.add(line);
-    }
-
-    return ConfigCleanupResult(cleanedLines, modified);
-  }
-
   Future<YamlMap> _ensureDependency(
       String packageName, File pubspecFile, YamlMap pubspecYaml) async {
     final devDeps = pubspecYaml['dev_dependencies'] as YamlMap?;
@@ -590,23 +551,6 @@ splash_master:
     }
 
     return pubspecYaml;
-  }
-
-  // Utility Methods
-  int _getIndentLevel(String line) {
-    var indent = 0;
-    for (var char in line.runes) {
-      if (char == 32) {
-        // space
-        indent++;
-      } else if (char == 9) {
-        // tab
-        indent += 2; // treat tab as 2 spaces
-      } else {
-        break;
-      }
-    }
-    return indent;
   }
 
   bool _isValidClientName(String name) {

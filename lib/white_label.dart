@@ -1,27 +1,13 @@
 import 'package:udara_cli/core/core.dart';
 
-class BuildCommand extends UdaraCommand {
-  BuildCommand() {
+class WhiteLabelCommand extends UdaraCommand {
+  WhiteLabelCommand() {
     argParser
       ..addOption(
         'client',
         abbr: 'c',
         mandatory: true,
         help: 'The name of the client to build for (e.g., udara).',
-      )
-      ..addOption(
-        'platform',
-        abbr: 'p',
-        defaultsTo: 'android',
-        allowed: ['android', 'ios'],
-        help: 'The target platform.',
-      )
-      ..addOption(
-        'type',
-        abbr: 't',
-        defaultsTo: 'aab',
-        allowed: ['aab', 'apk'],
-        help: 'The Android build type.',
       )
       ..addFlag(
         'test',
@@ -42,33 +28,26 @@ class BuildCommand extends UdaraCommand {
   }
 
   @override
-  final String name = 'build';
+  final String name = 'whitelabel';
 
   @override
   final String description =
-      '''Build a whitelabeled version of your Flutter app for a specific client.
+      ''' Whitelabel the app with client-specific assets, app name, bundle ID, branding, custom icons and splash screens.
 
   🎯 USAGE:
-    udara_cli build --client <CLIENT_NAME> [OPTIONS]
+    udara_cli whitelabel --client <CLIENT_NAME> [OPTIONS]
 
   📋 EXAMPLES:
-    # Build Android APK for 'apple' client (production)
-    udara_cli build --client apple
+   
+    # Whitelable a test version with Slack notifications
+    udara_cli whitelabel --client google --test --slack --slack-channel #dev-builds
 
-    # Build test version with Slack notifications
-    udara_cli build --client google --test --slack --slack-channel #dev-builds
-
-    # Build iOS version
-    udara_cli build --client microsoft --platform ios
-
+    
   🔧 WHAT THIS DOES:
     1. Loads client-specific configuration (.env or .env_test)
-    2. Updates app name, bundle ID, and branding
-    3. Generates custom icons and splash screens
-    4. Builds the app with client-specific assets
-    5. Renames output files with client name and version
-    6. Sends Slack notifications (if enabled)
-    7. Cleans up temporary changes and reverts project to default state
+    2. Whitelabel the app with client-specific assets, app name, bundle ID, branding, custom icons and splash screens.
+    3. Sends Slack notifications (if enabled)
+    4. Cleans up temporary changes and reverts project to default state
 
   ⚠️  PREREQUISITES:
     • Project must be set up with "udara_cli setup"
@@ -169,21 +148,8 @@ class BuildCommand extends UdaraCommand {
       await whiteLabel.patchIosSplash(appName);
       await whiteLabel.cleanAndroidIconCache();
 
-      // PHASE 4: THE FINAL BUILD
-      print('\n--- 📦 Phase 4: Building the App ---');
-      if (platform == 'android') {
-        final buildType = (type == 'aab') ? 'aab' : 'apk --release';
-        await runShell(
-            'flutter build $buildType --dart-define=CLIENT_ENV=".env"');
-
-        builtFile = await whiteLabel.renameOutput(
-            clientName: client, version: version, type: type);
-      } else {
-        await runShell('flutter build ipa --dart-define=CLIENT_ENV=".env"');
-      }
-
       buildSuccess = true;
-      print('\n✅✅✅ Build process completed successfully! ✅✅✅');
+      print('\n✅✅✅ Whitelabelling process completed successfully! ✅✅✅');
     } catch (e) {
       buildSuccess = false;
       errorMessage = e.toString();

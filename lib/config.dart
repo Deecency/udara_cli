@@ -1,5 +1,5 @@
 import 'package:udara_cli/core/core.dart';
-import 'package:udara_cli/services/config_service.dart';
+import 'package:udara_cli/core/services/config_service.dart';
 
 class ConfigCommand extends UdaraCommand {
   @override

@@ -1,9 +1,9 @@
 import 'package:udara_cli/config.dart';
 import 'package:udara_cli/core/core.dart';
 import 'package:udara_cli/scripts.dart';
-import 'package:udara_cli/services/config_service.dart';
 import 'package:udara_cli/set_up.dart';
 import 'package:udara_cli/slack_test.dart';
+import 'package:udara_cli/white_label.dart';
 
 Future<void> main(List<String> arguments) async {
   final runner = CommandRunner<void>(
@@ -39,6 +39,7 @@ Build multiple branded versions of your app with different configurations, asset
 
 🛠️  AVAILABLE COMMANDS:
   • build   - Build whitelabeled app for specific client
+  • whitelabel   -  Whitelabel the app with client-specific assets, app name, bundle ID, branding, custom icons and splash screens.
   • list    - Show all available clients
   • clean   - Clean build artifacts and reset project
   • setup   - Configure project, clients, or notifications
@@ -50,6 +51,7 @@ Build multiple branded versions of your app with different configurations, asset
   ''',
   )
     ..addCommand(BuildCommand())
+    ..addCommand(WhiteLabelCommand())
     ..addCommand(CleanCommand())
     ..addCommand(ListClientsCommand())
     ..addCommand(SetupCommand())
