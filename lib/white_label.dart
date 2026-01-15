@@ -115,7 +115,7 @@ class WhiteLabelCommand extends UdaraCommand {
       final appName = envVars['APP_NAME_PROD']!;
       final bundleId = envVars['BUNDLE_ID']!;
       final clientAssetsPath = envVars['ASSETS_PATH']!;
-      //  final appIconPath = envVars['APP_ICON_PATH']!;
+      final appIconPath = envVars['APP_ICON_PATH']!;
 
       // PHASE 2: PROJECT CONFIGURATION
       print('\n--- ✏️ Phase 2: Project Configuration ---');
@@ -124,6 +124,14 @@ class WhiteLabelCommand extends UdaraCommand {
       await config.createBackup(File('$projectDir/pubspec.yaml'));
       await config
           .createBackup(File('$projectDir/flutter_launcher_icons.yaml'));
+
+      await config.updateYamlValue(
+          File('$projectDir/flutter_launcher_icons.yaml'),
+          ['flutter_launcher_icons', 'image_path'],
+          appIconPath);
+
+      print(
+          'Updated `flutter_launcher_icons.yaml` image_path to `$appIconPath`');
 
       await whiteLabel.syncBrandingAssets(client, clientAssetsPath);
       await whiteLabel.applyClientFonts(clientAssetsPath);
