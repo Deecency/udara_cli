@@ -88,7 +88,6 @@ class WhiteLabelCommand extends UdaraCommand {
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
     final client = argResults!['client'] as String;
-    final type = argResults!['type'] as String;
     final isTest = argResults!['test'] as bool;
     final enableSlack = argResults!['slack'] as bool;
 
@@ -105,7 +104,7 @@ class WhiteLabelCommand extends UdaraCommand {
       print('--- ⚙️ Phase 1: Validation & Setup ---');
       version = await config.getPubspecVersion();
       await _notifyBuildStep('Whitelabel Started', client, '', 'started',
-          additionalInfo: 'Version: $version, Type: $type');
+          additionalInfo: 'Version: $version, Type: ' '');
 
       final envVars = await config.parseEnvFile(
           File('$projectDir/clients/$client/${isTest ? '.env_test' : '.env'}'));
@@ -168,7 +167,7 @@ class WhiteLabelCommand extends UdaraCommand {
         await slackService!.sendBuildSummary(
           client: client,
           platform: '',
-          type: type,
+          type: '',
           version: version,
           success: buildSuccess,
           buildTime: buildDuration,
