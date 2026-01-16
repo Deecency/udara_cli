@@ -163,6 +163,25 @@ class ConfigService {
     }
   }
 
+  Future<void> addInitialAssetEntries() async {
+    final file = File(p.join(projectDir, 'pubspec.yaml'));
+    final content = await file.readAsString();
+    final editor = YamlEditor(content);
+    final yaml = loadYaml(content);
+
+    final flutter = yaml['flutter'] as YamlMap?;
+    final currentAssets = (flutter?['assets'] as YamlList?)?.toList() ?? [];
+
+    const defaultEnv = 'clients/default/.env';
+
+    if (!currentAssets.contains(defaultEnv)) {
+      currentAssets.add(defaultEnv);
+      editor.update(['flutter', 'assets'], currentAssets);
+      await file.writeAsString(editor.toString());
+      print('✅ Added default .env to pubspec assets.');
+    }
+  }
+
   /// Get a specific config value
   static Future<T?> getConfigValue<T>(String key) async {
     final config = await loadConfig();
