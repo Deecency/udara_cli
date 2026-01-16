@@ -1,27 +1,48 @@
-# Udara CLI (Private)
+# Udara CLI
 
-A self-contained tool to manage and build Flutter projects for different clients with whitelabel support.
+[![pub package](https://img.shields.io/pub/v/udara_cli.svg)](https://pub.dev/packages/udara_cli)
+
+A powerful CLI tool for managing whitelabel Flutter projects with multi-client support. Build and maintain multiple branded versions of your Flutter app from a single codebase.
+
+---
+
+## Features ✨
+
+- 🏢 **Multi-client support** - Manage unlimited white-label variants
+- 🎨 **Asset management** - Client-specific icons, logos, and fonts
+- ⚙️ **Environment-based configuration** - Separate configs for dev, staging, and production
+- 🚀 **Automated builds** - One command to build for any client
+- 📱 **Slack notifications** - Get build status updates in Slack
+- 🔧 **Easy setup** - Guided project initialization
 
 ---
 
 ## Installation 📦
 
-This is a private repository. To install the CLI, you must have access to this repository and authenticate using SSH (recommended) or a Personal Access Token.
-
-### Using SSH (Recommended)
-
-Make sure you have [added your SSH key to your GitHub account](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account).
+### Global Installation
 
 ```bash
-dart pub global activate --source git git@github.com:your-username/udara_cli.git
+dart pub global activate udara_cli
 ```
 
-### Using a Personal Access Token (PAT)
+### Add to PATH
 
-[Generate a PAT](https://github.com/settings/tokens/new) with the `repo` scope.
+Make sure the pub cache bin directory is in your PATH:
+
+**macOS/Linux:**
+```bash
+export PATH="$PATH":"$HOME/.pub-cache/bin"
+```
+
+Add this to your `~/.bashrc`, `~/.zshrc`, or equivalent shell config file to make it permanent.
+
+**Windows:**
+Add `%LOCALAPPDATA%\Pub\Cache\bin` to your PATH environment variable.
+
+### Verify Installation
 
 ```bash
-dart pub global activate --source git https://<YOUR_TOKEN>@github.com/your-username/udara_cli.git
+udara_cli --version
 ```
 
 ---
@@ -204,9 +225,9 @@ BUNDLE_ID="com.yourcompany.yourapp"
 
 # Asset Paths (relative to project root)
 ASSETS_PATH="clients/default/"
-APP_ICON_PATH="assets/branding/default/default_icon.png"
-APP_LOGO_PATH="assets/branding/default/default_logo.png"
-APP_LOGO_ICON_PATH="assets/branding/default/default_icon_small.png"
+APP_ICON_PATH="assets/branding/default/logo_small.png"
+APP_LOGO_PATH="assets/branding/default/logo_large.png"
+APP_LOGO_ICON_PATH="assets/branding/default/logo_small.png"
 ```
 
 ### Optional Theme Variables
@@ -236,9 +257,9 @@ APP_NAME_STAGING="Default App Staging"
 APP_NAME_PROD="Default App"
 BUNDLE_ID="com.company.defaultapp"
 ASSETS_PATH="clients/default/"
-APP_ICON_PATH="assets/branding/default/default_icon.png"
-APP_LOGO_PATH="assets/branding/default/default_logo.png"
-APP_LOGO_ICON_PATH="assets/branding/default/default_icon_small.png"
+APP_ICON_PATH="assets/branding/default/logo_small.png"
+APP_LOGO_PATH="assets/branding/default/logo_large.png"
+APP_LOGO_ICON_PATH="assets/branding/default/logo_small.png"
 PRIMARY_COLOR="0xFFF26333"
 BACKGROUND_COLOR="0XFFF9F9F9"
 SECONDARY_COLOR="0xFF81BF42"
@@ -254,9 +275,9 @@ APP_NAME_STAGING="Client A App Staging"
 APP_NAME_PROD="Client A App"
 BUNDLE_ID="com.company.clientaapp"
 ASSETS_PATH="clients/clientA/"
-APP_ICON_PATH="assets/branding/clientA/clientA_icon.png"
-APP_LOGO_PATH="assets/branding/clientA/clientA_logo.png"
-APP_LOGO_ICON_PATH="assets/branding/clientA/clientA_icon_small.png"
+APP_ICON_PATH="assets/branding/clientA/logo_small.png"
+APP_LOGO_PATH="assets/branding/clientA/logo_large.png"
+APP_LOGO_ICON_PATH="assets/branding/clientA/logo_small.png"
 PRIMARY_COLOR="0xFF2196F3"
 BACKGROUND_COLOR="0XFFFFFFFF"
 SECONDARY_COLOR="0xFF4CAF50"
@@ -281,6 +302,8 @@ udara_cli build --client clientA --platform android
 - `--platform` or `-p`: Target platform (`android` or `ios`) - defaults to `android`
 - `--type` or `-t`: Android build type (`aab` or `apk`) - defaults to `aab`
 - `--test`: Build using the test environment (`.env_test`)
+- `--slack`: Send build notifications to Slack
+- `--slack-channel`: Specify Slack channel (e.g., `#builds`)
 
 ### Examples
 
@@ -296,6 +319,9 @@ udara_cli build --client default --platform ios
 
 # Build with test environment
 udara_cli build --client clientA --platform android --test
+
+# Build with Slack notifications
+udara_cli build --client clientA --platform android --slack --slack-channel #builds
 ```
 
 ---
@@ -317,6 +343,52 @@ The CLI performs the following steps:
    - Fixes platform-specific issues
 4. **Final Build**: Builds the app with client-specific configuration
 5. **Cleanup**: Restores original project state
+6. **Notifications** (if enabled): Sends build status to Slack
+
+---
+
+## Commands Reference 📚
+
+### Setup Commands
+
+```bash
+# Full project setup
+udara_cli setup
+
+# Initialize specific clients
+udara_cli setup --clients clientA,clientB,clientC
+
+# Configure Slack notifications
+udara_cli setup --notify
+
+# Reset all configurations
+udara_cli setup --reset
+```
+### White Label (Only) Commands
+
+```bash
+
+# White label for a client
+udara_cli whitelable --clientA 
+
+# Configure Slack notifications
+udara_cli whitelable --clientA  --notify
+
+```
+
+### Build Commands
+
+```bash
+# Build for a client
+udara_cli build --client <name> [options]
+
+# List all available clients
+udara_cli list
+
+# Show help
+udara_cli --help
+udara_cli build --help
+```
 
 ---
 
@@ -324,7 +396,6 @@ The CLI performs the following steps:
 
 - Flutter SDK installed and configured
 - Dart SDK (comes with Flutter)
-- Access to this private repository
 - Proper project structure as outlined above
 - Required dependencies in `pubspec.yaml`:
   - `flutter_dotenv` (required for environment variable management)
@@ -342,7 +413,32 @@ The CLI performs the following steps:
 2. **Missing assets**: Check that all required asset paths exist and are correctly specified in the environment file
 3. **Build failures**: Ensure all Flutter dependencies are properly installed and the project builds normally before using the CLI
 4. **Environment variables not loading**: Verify that `flutter_dotenv` is installed and properly initialized in your app's main function
+5. **Command not found**: Make sure the pub cache bin directory is in your PATH
 
 ### Getting Help
 
-For issues specific to this CLI tool, please check the repository issues or contact the development team.
+- Check the [issues page](https://github.com/deecency/udara_cli/issues) for known issues
+- Create a new issue with detailed error messages and steps to reproduce
+- Run `udara_cli --help` for command documentation
+
+---
+
+## Contributing 🤝
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+---
+
+## License 📄
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+## Changelog 📝
+
+See [CHANGELOG.md](CHANGELOG.md) for a list of changes in each version.
+
+---
+
+**Made with ❤️ for the Flutter community**
