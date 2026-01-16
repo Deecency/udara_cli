@@ -26,6 +26,74 @@ dart pub global activate --source git https://<YOUR_TOKEN>@github.com/your-usern
 
 ---
 
+## Getting Started 🎯
+
+After installing the CLI, you need to initialize your project. The CLI provides a guided setup process:
+
+### 1. Initial Project Setup
+
+Run the setup command to configure your project dependencies and create necessary configuration files:
+
+```bash
+udara_cli setup
+```
+
+This will:
+- Install required dependencies (`rename`, `flutter_launcher_icons`, `splash_master`)
+- Create `flutter_launcher_icons.yaml` configuration file
+- Add `splash_master` configuration to your `pubspec.yaml`
+- Set up the basic project structure
+
+### 2. Initialize Client Directories
+
+Create your client directories with pre-configured templates:
+
+```bash
+# Create one or more clients (comma-separated)
+udara_cli setup --clients default,clientA,clientB
+```
+
+This will create the complete directory structure for each client, including:
+- Client folder in `clients/[name]/`
+- Environment files (`.env` and `.env_test`)
+- Placeholder logo files
+- Fonts directory
+- Client-specific README
+
+**Note**: Always include a `default` client as a fallback configuration.
+
+### 3. Optional: Configure Slack Notifications
+
+If you want build notifications sent to Slack:
+
+```bash
+udara_cli setup --notify
+```
+
+You'll need:
+- A Slack Bot Token (starts with `xoxb-`)
+- Bot token scopes: `chat:write`, `files:write`, `channels:read`
+
+### 4. List Available Clients
+
+To see all configured clients:
+
+```bash
+udara_cli list
+```
+
+### Other Setup Options
+
+```bash
+# Reset all CLI configurations
+udara_cli setup --reset
+
+# Get detailed help on setup command
+udara_cli setup --help
+```
+
+---
+
 ## Project Structure 📁
 
 Your Flutter project must follow this structure for the CLI to work properly:
@@ -61,9 +129,69 @@ your_flutter_project/
 
 ## Environment Configuration 🔧
 
-Each client must have corresponding environment files in their respective `clients/client_name/` directory with the following structure:
+### Important: flutter_dotenv Dependency
+
+**This tool is heavily dependent on environment files and requires the `flutter_dotenv` package.** Make sure to add it to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  flutter_dotenv: ^5.1.0  # or latest version
+```
+
+### Environment File Initialization
+
+You **must** have a default/base client folder and environment file that acts as a fallback. Initialize the environment in your Flutter app as follows:
+
+```dart
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+// In your main() function or initialization code
+const envFile = String.fromEnvironment(
+  'CLIENT_ENV',
+  defaultValue: 'clients/your_default_client_folder_name/.env',
+);
+
+await dotenv.load(fileName: envFile);
+```
+
+This ensures that:
+- A default environment is always loaded if no client is specified
+- Client-specific environments can override the default when building
+- Your app has access to all environment variables at runtime
+
+### Client-Specific Variables
+
+Environment files can store client-specific variables for use throughout your application and whitelabel variants. Access these variables in your Flutter code using:
+
+```dart
+dotenv.env['VARIABLE_NAME']
+```
+
+### How It Works
+
+The whitelabel system operates in two phases:
+
+1. **Build Time**: When you run the CLI with a specific `--client` flag, it swaps out the environment files and configures the build process accordingly. The CLI:
+   - Loads the client-specific `.env` file from `clients/[client_name]/.env`
+   - Copies client-specific assets (icons, logos, fonts) to the appropriate locations
+   - Updates the app's bundle ID, app name, and other build configurations
+   - Passes the environment file path to Flutter via the `CLIENT_ENV` compile-time constant
+
+2. **Runtime**: Once the app is running, `flutter_dotenv` reads the environment variables that were configured at build time. This allows you to:
+   - Access build configurations that were set during compilation
+   - Store and retrieve client-specific UI variables (feature flags, theme colors, API endpoints)
+   - Drive your whitelabel logic dynamically based on these variables
+   - Maintain a single codebase that adapts to different client requirements
+
+**Example Use Cases**:
+- Feature flags: `SHOW_SIGN_UP=true` to enable/disable signup for specific clients
+- API configuration: Different `API_BASE_URL` values per client
+- Theme customization: Client-specific `PRIMARY_COLOR` and `SECONDARY_COLOR` values
+- Content variations: Different assets, logos, or branding elements per client
 
 ### Required Environment Variables
+
+Each client must have corresponding environment files in their respective `clients/client_name/` directory with the following structure:
 
 ```env
 # App Names for Different Environments
@@ -101,7 +229,7 @@ ONBOARDING_IMAGES=
 
 ### Example Environment Files
 
-**`clients/default/.env_default`:**
+**`clients/default/.env`:**
 ```env
 APP_NAME_DEV="Default App Dev"
 APP_NAME_STAGING="Default App Staging"
@@ -119,7 +247,7 @@ SHOW_SIGN_UP=true
 ENABLE_LION=true
 ```
 
-**`clients/clientA/.env_clientA`:**
+**`clients/clientA/.env`:**
 ```env
 APP_NAME_DEV="Client A App Dev"
 APP_NAME_STAGING="Client A App Staging"
@@ -149,7 +277,7 @@ udara_cli build --client clientA --platform android
 
 ### Build Options
 
-- `--client` or `-c`: **Required** - The name of the client to build for (e.g., `udara`, `clientA`)
+- `--client` or `-c`: **Required** - The name of the client to build for (e.g., `default`, `clientA`)
 - `--platform` or `-p`: Target platform (`android` or `ios`) - defaults to `android`
 - `--type` or `-t`: Android build type (`aab` or `apk`) - defaults to `aab`
 - `--test`: Build using the test environment (`.env_test`)
@@ -199,6 +327,7 @@ The CLI performs the following steps:
 - Access to this private repository
 - Proper project structure as outlined above
 - Required dependencies in `pubspec.yaml`:
+  - `flutter_dotenv` (required for environment variable management)
   - `flutter_launcher_icons`
   - `splash_master`
   - `rename`
@@ -209,9 +338,10 @@ The CLI performs the following steps:
 
 ### Common Issues
 
-1. **Client not found**: Ensure the client directory exists in `clients/` and has the corresponding `.env_clientname` file in that directory
+1. **Client not found**: Ensure the client directory exists in `clients/` and has the corresponding `.env` file in that directory
 2. **Missing assets**: Check that all required asset paths exist and are correctly specified in the environment file
 3. **Build failures**: Ensure all Flutter dependencies are properly installed and the project builds normally before using the CLI
+4. **Environment variables not loading**: Verify that `flutter_dotenv` is installed and properly initialized in your app's main function
 
 ### Getting Help
 
