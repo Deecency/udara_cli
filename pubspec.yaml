@@ -1,5 +1,8 @@
 name: udara_cli
-description: A command-line tool for managing Udara project builds.
+description: A CLI tool for managing whitelabel Flutter projects with multi-client support
+homepage: https://github.com/deecency/udara_cli
+repository: https://github.com/deecency/udara_cli
+issue_tracker: https://github.com/deecency/udara_cli/issues
 version: 1.0.0
 environment:
   sdk: ">=3.0.0 <4.0.0"
