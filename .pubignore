@@ -1,0 +1,7 @@
+# Don't publish client-specific data
+clients/
+# Don't publish test artifacts
+build/
+# Ignore IDE files
+.idea/
+.vscode/
