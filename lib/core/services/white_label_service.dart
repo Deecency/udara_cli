@@ -1,8 +1,6 @@
 import 'package:path/path.dart' as p;
 import '../core.dart';
 
-import 'config_service.dart';
-
 class WhiteLabelService {
   final String projectDir;
   final ConfigService config;
