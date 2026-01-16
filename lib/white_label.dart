@@ -116,6 +116,7 @@ class WhiteLabelCommand extends UdaraCommand {
       final bundleId = envVars['BUNDLE_ID']!;
       final clientAssetsPath = envVars['ASSETS_PATH']!;
       final appIconPath = envVars['APP_ICON_PATH']!;
+      appNameForCleanup = appName;
 
       // PHASE 2: PROJECT CONFIGURATION
       print('\n--- ✏️ Phase 2: Project Configuration ---');
@@ -172,7 +173,7 @@ class WhiteLabelCommand extends UdaraCommand {
       print('\n--- 🧹 Final Phase: Cleaning Up ---');
 
       await cleanup.performFullCleanup(
-        appNameForCleanup: client,
+        appNameForCleanup: appNameForCleanup,
         fontsWereChanged: true,
       );
       if (slackService != null && version != null) {

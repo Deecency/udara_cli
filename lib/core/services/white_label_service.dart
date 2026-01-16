@@ -168,18 +168,14 @@ class CleanupService {
   }) async {
     print('\n🧹 Starting project cleanup...');
 
-    // 1. Restore YAML files from backups
     await _restoreYamlFiles();
 
-    // 2. Remove temporary files
     await _removeTempFiles();
 
-    // 3. Revert platform-specific branding
     if (appNameForCleanup != null) {
       await _revertIosStoryboard(appNameForCleanup);
     }
 
-    // 4. Handle Font Restoration
     if (fontsWereChanged) {
       await _restoreDefaultFonts();
     }
