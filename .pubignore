@@ -1,7 +1,11 @@
-# Don't publish client-specific data
+# Don't publish lockfiles
+pubspec.lock
+
+# IMPORTANT: Don't publish your test clients or keys
 clients/
-# Don't publish test artifacts
-build/
-# Ignore IDE files
+.env*
+
+# Ignore IDE and tool metadata
 .idea/
 .vscode/
+.dart_tool/
