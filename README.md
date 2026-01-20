@@ -100,7 +100,7 @@ You'll need:
 To see all configured clients:
 
 ```bash
-udara_cli list
+udara_cli list-clients
 ```
 
 ### Other Setup Options
@@ -139,10 +139,15 @@ your_flutter_project/
 │       └── .env_test
 ├── assets/
 │   └── branding/
-│       └── default/
-│           ├── default_icon.png
-│           ├── default_logo.png
-│           └── default_icon_small.png
+│       ├── default/
+│       │   ├── logo_small.png
+│       │   └── logo_large.png
+│       ├── clientA/
+│       │   ├── logo_small.png
+│       │   └── logo_large.png
+│       └── clientB/
+│           ├── logo_small.png
+│           └── logo_large.png
 └── pubspec.yaml
 ```
 
@@ -209,6 +214,7 @@ The whitelabel system operates in two phases:
 - API configuration: Different `API_BASE_URL` values per client
 - Theme customization: Client-specific `PRIMARY_COLOR` and `SECONDARY_COLOR` values
 - Content variations: Different assets, logos, or branding elements per client
+- Custom fonts: Client-specific `FONT_FAMILY` for typography customization
 
 ### Required Environment Variables
 
@@ -246,7 +252,62 @@ SHOW_HOME_TEXT=true
 SHOW_SIGN_UP=true
 ENABLE_LION=true
 ONBOARDING_IMAGES=
+
+# Custom Typography
+FONT_FAMILY="Manrope"
 ```
+
+### Client-Specific Custom Fonts
+
+The CLI supports client-specific custom fonts. Here's how to set them up:
+
+#### 1. Add Fonts to Client Directory
+
+Place your font files in the client's `fonts/` directory:
+
+```
+clients/
+└── clientA/
+    └── fonts/
+        ├── Manrope-Regular.ttf
+        ├── Manrope-Bold.ttf
+        └── Manrope-ExtraBold.ttf
+```
+
+#### 2. Configure Font in Environment File
+
+Add the font family name to your client's `.env` file:
+
+```env
+FONT_FAMILY="Manrope"
+```
+
+#### 3. Use Font in Your Application
+
+Access the font family dynamically in your Flutter app:
+
+```dart
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+TextStyle(
+  fontFamily: dotenv.env['FONT_FAMILY'] ?? 'Roboto', // Fallback to default
+  color: context?.textTheme.bodyLarge?.color,
+  fontWeight: FontWeight.w800,
+  fontFamilyFallback: const ['Roboto', 'Noto Sans', 'Arial'],
+)
+```
+
+#### How Font Replacement Works
+
+When you run the whitelabel or build command:
+
+1. The CLI checks if the client has a `fonts/` directory
+2. If custom fonts exist, it backs up the default fonts (if any)
+3. Copies the client's fonts to `assets/fonts/`
+4. If a `fonts.yaml` configuration exists in the client's fonts directory, it applies the font families to `pubspec.yaml`
+5. During runtime, your app reads the `FONT_FAMILY` environment variable and applies the appropriate font
+
+**Note**: If no custom fonts are provided for a client, the CLI skips the font replacement step and uses the default fonts.
 
 ### Example Environment Files
 
@@ -263,6 +324,7 @@ APP_LOGO_ICON_PATH="assets/branding/default/logo_small.png"
 PRIMARY_COLOR="0xFFF26333"
 BACKGROUND_COLOR="0XFFF9F9F9"
 SECONDARY_COLOR="0xFF81BF42"
+FONT_FAMILY="Roboto"
 SHOW_HOME_TEXT=true
 SHOW_SIGN_UP=true
 ENABLE_LION=true
@@ -281,6 +343,7 @@ APP_LOGO_ICON_PATH="assets/branding/clientA/logo_small.png"
 PRIMARY_COLOR="0xFF2196F3"
 BACKGROUND_COLOR="0XFFFFFFFF"
 SECONDARY_COLOR="0xFF4CAF50"
+FONT_FAMILY="Manrope"
 SHOW_HOME_TEXT=false
 SHOW_SIGN_UP=true
 ENABLE_LION=false
@@ -364,17 +427,6 @@ udara_cli setup --notify
 # Reset all configurations
 udara_cli setup --reset
 ```
-### White Label (Only) Commands
-
-```bash
-
-# White label for a client
-udara_cli whitelable --clientA 
-
-# Configure Slack notifications
-udara_cli whitelable --clientA  --notify
-
-```
 
 ### Build Commands
 
@@ -383,7 +435,7 @@ udara_cli whitelable --clientA  --notify
 udara_cli build --client <name> [options]
 
 # List all available clients
-udara_cli list
+udara_cli list-clients
 
 # Show help
 udara_cli --help

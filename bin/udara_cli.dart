@@ -3,6 +3,7 @@ import 'package:udara_cli/core/core.dart';
 import 'package:udara_cli/scripts.dart';
 import 'package:udara_cli/set_up.dart';
 import 'package:udara_cli/slack_test.dart';
+import 'package:udara_cli/version.dart';
 import 'package:udara_cli/white_label.dart';
 
 Future<void> main(List<String> arguments) async {
@@ -58,7 +59,21 @@ Build multiple branded versions of your app with different configurations, asset
     ..addCommand(ConfigCommand())
     ..addCommand(SlackTestCommand());
 
+  runner.argParser.addFlag(
+    'version',
+    abbr: 'v',
+    negatable: false,
+    help: 'Print the current version of Udara CLI.',
+  );
+
   try {
+    final results = runner.argParser.parse(arguments);
+
+    // 2. Handle the version flag
+    if (results['version'] == true) {
+      print('udara_cli version: $udaraCliVersion');
+      return; // Exit successfully
+    }
     // Check if this is the first time running the CLI
     await _checkFirstTimeSetup(arguments);
     await runner.run(arguments);
@@ -177,7 +192,7 @@ void _printReturningUserMessage() {
   print('👋 Welcome back to Udara CLI!');
   print('');
   print('💡 QUICK TIPS:');
-  print('  • Run "udara_cli list" to see all available clients');
+  print('  • Run "udara_cli list-clients" to see all available clients');
   print('  • Run "udara_cli setup --notify" to enable Slack notifications');
   print('  • Run "udara_cli --help" for command reference');
   print('');
@@ -215,7 +230,7 @@ String getBuildErrorHelp(String errorType) {
       return _formatErrorHelp('setup', 'Client directory not found', [
         'Run "udara_cli setup --clients <client_name>" to create the client',
         'Check that clients/ directory exists in your project root',
-        'Run "udara_cli list" to see available clients',
+        'Run "udara_cli list-clients" to see available clients',
       ]);
 
     case 'missing_env':
