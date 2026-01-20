@@ -271,7 +271,19 @@ clients/
     └── fonts/
         ├── Manrope-Regular.ttf
         ├── Manrope-Bold.ttf
-        └── Manrope-ExtraBold.ttf
+        └── fonts.yaml  <-- Required for auto-configuration
+```
+Inside the fonts/ directory, create a fonts.yaml file. 
+Important: Do not include the top-level fonts: key; start directly with the list of families. 
+The format must match Flutter's expected structure:
+
+```
+- family: Manrope
+  fonts:
+    - asset: assets/fonts/Manrope-Regular.ttf
+      weight: 400
+    - asset: assets/fonts/Manrope-Bold.ttf
+      weight: 700
 ```
 
 #### 2. Configure Font in Environment File

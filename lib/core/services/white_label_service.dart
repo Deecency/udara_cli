@@ -1,4 +1,5 @@
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 import '../core.dart';
 
 class WhiteLabelService {
@@ -49,7 +50,6 @@ class WhiteLabelService {
       return;
     }
 
-    // Backup default fonts if not already backed up
     final backupDir = Directory('${targetFontsDir.path}.bak');
     if (targetFontsDir.existsSync() && !backupDir.existsSync()) {
       await targetFontsDir.rename(backupDir.path);
@@ -58,11 +58,19 @@ class WhiteLabelService {
     await targetFontsDir.create(recursive: true);
     await _copyDirectory(clientFontsDir, targetFontsDir);
 
-    // If the client has a specific fonts.yaml, apply those families to pubspec
-    final fontsConfig = File(p.join(clientFontsDir.path, 'fonts.yaml'));
-    if (fontsConfig.existsSync()) {
-      // Logic would call config.updateYamlValue for the 'fonts' key here
-      print('✅ Client font configuration applied.');
+    final fontsConfigFile = File(p.join(clientFontsDir.path, 'fonts.yaml'));
+    if (fontsConfigFile.existsSync()) {
+      print('✏️ Overwriting pubspec fonts with client configuration...');
+
+      final fontsContent = await fontsConfigFile.readAsString();
+      final fontsList = loadYaml(fontsContent);
+
+      if (fontsList is YamlList || fontsList is List) {
+        await config.updatePubspecFonts(fontsList);
+        print('✅ Client font configuration applied to pubspec.yaml');
+      } else {
+        print('⚠️ Error: fonts.yaml must be a list of font families.');
+      }
     }
   }
 

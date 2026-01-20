@@ -163,6 +163,16 @@ class ConfigService {
     }
   }
 
+  Future<void> updatePubspecFonts(List<dynamic> fontList) async {
+    final file = File(p.join(projectDir, 'pubspec.yaml'));
+    final content = await file.readAsString();
+    final editor = YamlEditor(content);
+
+    editor.update(['flutter', 'fonts'], fontList);
+
+    await file.writeAsString(editor.toString());
+  }
+
   Future<void> addInitialAssetEntries() async {
     final file = File(p.join(projectDir, 'pubspec.yaml'));
     final content = await file.readAsString();
