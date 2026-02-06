@@ -87,9 +87,9 @@ class WhiteLabelCommand extends UdaraCommand {
     whiteLabel = WhiteLabelService(projectDir: projectDir, config: config);
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
-    final client = argResults!['client'] as String;
-    final isTest = argResults!['test'] as bool;
-    final enableSlack = argResults!['slack'] as bool;
+    final client = argResults?['client'] as String;
+    final isTest = argResults?['test'] as bool;
+    final enableSlack = argResults?['slack'] as bool;
 
     String? version;
     String? errorMessage;
@@ -112,10 +112,18 @@ class WhiteLabelCommand extends UdaraCommand {
       await config.copyToRootEnv(
           File('$projectDir/clients/$client/${isTest ? '.env_test' : '.env'}'));
 
-      final appName = envVars['APP_NAME_PROD']!;
-      final bundleId = envVars['BUNDLE_ID']!;
-      final clientAssetsPath = envVars['ASSETS_PATH']!;
-      final appIconPath = envVars['APP_ICON_PATH']!;
+      final appName = envVars['APP_NAME_PROD'];
+      final bundleId = envVars['BUNDLE_ID'];
+      final clientAssetsPath = envVars['ASSETS_PATH'];
+      final appIconPath = envVars['APP_ICON_PATH'];
+
+      if (appName == null ||
+          bundleId == null ||
+          clientAssetsPath == null ||
+          appIconPath == null) {
+        throw ArgumentError(
+            'Missing required environment variables for client $client');
+      }
       appNameForCleanup = appName;
 
       // PHASE 2: PROJECT CONFIGURATION
@@ -161,9 +169,10 @@ class WhiteLabelCommand extends UdaraCommand {
 
       buildSuccess = true;
       print('\n✅✅✅ Whitelabelling process completed successfully! ✅✅✅');
-    } catch (e) {
+    } catch (e, s) {
       buildSuccess = false;
       errorMessage = e.toString();
+      print('Stack trace:\n$s');
       await _notifyBuildStep('Build Process', client, '', 'failed',
           errorMessage: errorMessage);
       rethrow; // Ensure cleanup runs but user sees the error
