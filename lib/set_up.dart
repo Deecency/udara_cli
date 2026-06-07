@@ -164,25 +164,63 @@ class SetupCommand extends UdaraCommand {
   }
 
   Future<void> _createClientStructure(
-      String clientsPath, String clientName) async {
+    String clientsPath,
+    String clientName,
+  ) async {
     final clientDir = Directory(p.join(clientsPath, clientName));
-    if (await clientDir.exists()) return;
 
-    print('🔧 Creating structure for: $clientName');
+    final alreadyExists = await clientDir.exists();
+
+    if (!alreadyExists) {
+      print('🔧 Creating structure for: $clientName');
+    } else {
+      print('🔄 Updating existing client: $clientName');
+    }
+
+    // Ensure base directory exists
     await clientDir.create(recursive: true);
-    await Directory(p.join(clientDir.path, 'fonts')).create();
 
-    // Create .env templates
-    await File(p.join(clientDir.path, '.env'))
-        .writeAsString(_envTemplate(clientName, true));
-    await File(p.join(clientDir.path, '.env_test'))
-        .writeAsString(_envTemplate(clientName, false));
+    // Ensure folders exist
+    await Directory(
+      p.join(clientDir.path, 'fonts'),
+    ).create(recursive: true);
 
-    // Create placeholder logos
-    await File(p.join(clientDir.path, 'logo_small.png'))
-        .writeAsString('# Placeholder');
-    await File(p.join(clientDir.path, 'logo_large.png'))
-        .writeAsString('# Placeholder');
+    // Create files only if missing
+    await _createFileIfMissing(
+      p.join(clientDir.path, '.env'),
+      _envTemplate(clientName, true),
+    );
+
+    await _createFileIfMissing(
+      p.join(clientDir.path, '.env_test'),
+      _envTemplate(clientName, false),
+    );
+
+    await _createFileIfMissing(
+      p.join(clientDir.path, 'logo_small.png'),
+      '# Placeholder',
+    );
+
+    await _createFileIfMissing(
+      p.join(clientDir.path, 'logo_large.png'),
+      '# Placeholder',
+    );
+  }
+
+  Future<void> _createFileIfMissing(
+    String path,
+    String content,
+  ) async {
+    final file = File(path);
+
+    if (await file.exists()) {
+      print('⏭️ Skipping existing file: ${p.basename(path)}');
+      return;
+    }
+
+    await file.writeAsString(content);
+
+    print('📄 Created: ${p.basename(path)}');
   }
 
   // --------------------------------------------------------------------------

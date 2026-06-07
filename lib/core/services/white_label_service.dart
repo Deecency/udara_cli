@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 import '../core.dart';
+import 'package:glob/glob.dart';
 
 class WhiteLabelService {
   final String projectDir;
@@ -17,6 +18,7 @@ class WhiteLabelService {
 
   /// Moves client-specific branding images into the active assets folder.
   Future<void> syncBrandingAssets(String clientName, String sourcePath) async {
+    _ensureUdaraIgnoreFile();
     final sourceDir = Directory(p.join(projectDir, sourcePath));
     if (!sourceDir.existsSync()) {
       throw BuildException('Source assets not found at ${sourceDir.path}');
@@ -144,17 +146,120 @@ class WhiteLabelService {
   // PRIVATE HELPERS
   // --------------------------------------------------------------------------
 
-  Future<void> _copyDirectory(Directory source, Directory destination) async {
-    await for (var entity in source.list(recursive: false)) {
+  Future<void> _ensureUdaraIgnoreFile() async {
+    final file = File(p.join(projectDir, '.udaraignore'));
+
+    if (await file.exists()) {
+      // Don't touch existing user config
+      return;
+    }
+
+    print('🛡️ Creating default .udaraignore file...');
+
+    const defaultContent = '''
+# Udara CLI ignore file
+# Auto-generated - you can edit freely
+
+service_account.json
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+''';
+
+    await file.writeAsString(defaultContent.trim());
+
+    print('✅ .udaraignore created');
+  }
+
+  Future<void> _copyDirectory(
+    Directory source,
+    Directory destination,
+  ) async {
+    final brandingConfig = await _loadBrandingConfig();
+
+    final patterns = [
+      ..._defaultExcludedPatterns,
+      ...brandingConfig.excludes,
+    ];
+
+    final globs = patterns.map(Glob.new).toList();
+
+    await _copyDirectoryInternal(
+      source,
+      destination,
+      source,
+      globs,
+    );
+  }
+
+  Future<void> _copyDirectoryInternal(
+    Directory source,
+    Directory destination,
+    Directory root,
+    List<Glob> globs,
+  ) async {
+    await for (final entity in source.list(recursive: false)) {
+      final relativePath = p.relative(
+        entity.path,
+        from: root.path,
+      );
+
+      final shouldSkip = globs.any(
+        (glob) => glob.matches(relativePath),
+      );
+
+      if (shouldSkip) {
+        print('🔒 Skipping $relativePath');
+        continue;
+      }
+
       if (entity is Directory) {
         final newDirectory = Directory(
-            p.join(destination.absolute.path, p.basename(entity.path)));
-        await newDirectory.create();
-        await _copyDirectory(entity, newDirectory);
+          p.join(
+            destination.path,
+            p.basename(entity.path),
+          ),
+        );
+
+        await newDirectory.create(recursive: true);
+
+        await _copyDirectoryInternal(
+          entity,
+          newDirectory,
+          root,
+          globs,
+        );
       } else if (entity is File) {
-        await entity.copy(p.join(destination.path, p.basename(entity.path)));
+        await entity.copy(
+          p.join(
+            destination.path,
+            p.basename(entity.path),
+          ),
+        );
       }
     }
+  }
+
+  Future<_BrandingConfig> _loadBrandingConfig() async {
+    final ignoreFile = File(
+      p.join(projectDir, '.udaraignore'),
+    );
+
+    if (!ignoreFile.existsSync()) {
+      return const _BrandingConfig();
+    }
+
+    final lines = await ignoreFile.readAsLines();
+
+    final excludes = lines
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .where((e) => !e.startsWith('#'))
+        .toList();
+
+    return _BrandingConfig(excludes: excludes);
   }
 }
 
@@ -252,3 +357,20 @@ class CleanupService {
     }
   }
 }
+
+class _BrandingConfig {
+  final List<String> excludes;
+
+  const _BrandingConfig({
+    this.excludes = const [],
+  });
+}
+
+const _defaultExcludedPatterns = [
+  'service_account.json',
+  '*.pem',
+  '*.key',
+  '*.p12',
+  '*.jks',
+  '*.keystore',
+];
