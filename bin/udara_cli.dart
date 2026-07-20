@@ -36,6 +36,9 @@ Build multiple branded versions of your app with different configurations, asset
   │   │   ├── logo_large.png   # Splash screen
   │   │   └── fonts/           # Custom fonts
   │   └── client_b/            # Another client...
+  │   
+  ├── .udaraignore             # Support for user-defined ignore patterns for safer asset and secret management during whitelabel builds
+  │   
   └── flutter_launcher_icons.yaml
 
 🛠️  AVAILABLE COMMANDS:

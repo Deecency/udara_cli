@@ -1,7 +1,7 @@
+import 'package:glob/glob.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 import '../core.dart';
-import 'package:glob/glob.dart';
 
 class WhiteLabelService {
   final String projectDir;
@@ -18,23 +18,38 @@ class WhiteLabelService {
 
   /// Moves client-specific branding images into the active assets folder.
   Future<void> syncBrandingAssets(String clientName, String sourcePath) async {
-    _ensureUdaraIgnoreFile();
+    await _ensureUdaraIgnoreFile();
     final sourceDir = Directory(p.join(projectDir, sourcePath));
+
     if (!sourceDir.existsSync()) {
-      throw BuildException('Source assets not found at ${sourceDir.path}');
+      throw BuildException(
+        'Source assets directory not found at "${sourceDir.path}"',
+        fix:
+            'Verify $clientName environment variables (ASSETS_PATH) and check if the directory exists.',
+      );
     }
 
     final targetDir =
         Directory(p.join(projectDir, 'assets', 'branding', clientName));
 
-    // Clean start: Remove existing branding if it exists
-    if (targetDir.existsSync()) {
-      await targetDir.delete(recursive: true);
-    }
-    await targetDir.create(recursive: true);
+    try {
+      if (targetDir.existsSync()) {
+        await targetDir.delete(recursive: true);
+      }
+      await targetDir.create(recursive: true);
 
-    print('🚀 Syncing assets: ${p.basename(sourcePath)} -> ${targetDir.path}');
-    await _copyDirectory(sourceDir, targetDir);
+      Logger.info(
+          'Syncing assets: ${p.basename(sourcePath)} ➔ ${targetDir.path}');
+      await _copyDirectory(sourceDir, targetDir);
+    } catch (e, s) {
+      if (e is BuildException) rethrow;
+      throw BuildException(
+        'Failed to sync branding assets for client "$clientName"',
+        fix:
+            'Ensure the source directory "${sourceDir.path}" is accessible and has read permissions.',
+        originalStackTrace: s,
+      );
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -48,7 +63,7 @@ class WhiteLabelService {
     final targetFontsDir = Directory(p.join(projectDir, 'assets', 'fonts'));
 
     if (!clientFontsDir.existsSync()) {
-      print('ℹ️ No custom fonts found for this client. Skipping.');
+      Logger.info('No custom fonts found for this client. Skipping.');
       return;
     }
 
@@ -62,16 +77,30 @@ class WhiteLabelService {
 
     final fontsConfigFile = File(p.join(clientFontsDir.path, 'fonts.yaml'));
     if (fontsConfigFile.existsSync()) {
-      print('✏️ Overwriting pubspec fonts with client configuration...');
+      Logger.info('Applying client font configuration to pubspec...');
 
-      final fontsContent = await fontsConfigFile.readAsString();
-      final fontsList = loadYaml(fontsContent);
+      try {
+        final fontsContent = await fontsConfigFile.readAsString();
+        final fontsList = loadYaml(fontsContent);
 
-      if (fontsList is YamlList || fontsList is List) {
-        await config.updatePubspecFonts(fontsList);
-        print('✅ Client font configuration applied to pubspec.yaml');
-      } else {
-        print('⚠️ Error: fonts.yaml must be a list of font families.');
+        if (fontsList is YamlList || fontsList is List) {
+          await config.updatePubspecFonts(fontsList);
+          Logger.success('Client font configuration applied to pubspec.yaml');
+        } else {
+          throw BuildException(
+            'Invalid format in fonts.yaml: must be a YAML list of font configurations.',
+            fix:
+                'Check "${fontsConfigFile.path}" and ensure it is structured as a YAML list.',
+          );
+        }
+      } on BuildException {
+        rethrow;
+      } catch (e, s) {
+        throw BuildException(
+          'Failed to parse or apply font configuration from "${fontsConfigFile.path}"',
+          fix: 'Check fonts.yaml syntax for formatting errors.',
+          originalStackTrace: s,
+        );
       }
     }
   }
@@ -80,8 +109,7 @@ class WhiteLabelService {
   // PLATFORM SPECIFIC (IOS/ANDROID)
   // --------------------------------------------------------------------------
 
-  /// Handles the iOS LaunchScreen.storyboard renaming to avoid cache issues.
-  Future<void> patchIosSplash(String appName) async {
+  /*   Future<void> patchIosSplash(String appName) async {
     final storyboardFile = File(
       p.join(
           projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
@@ -89,18 +117,25 @@ class WhiteLabelService {
 
     if (!storyboardFile.existsSync()) return;
 
-    print('🍎 Patching iOS LaunchScreen for $appName...');
-    var content = await storyboardFile.readAsString();
+    Logger.info('Patching iOS LaunchScreen for $appName...');
+    try {
+      var content = await storyboardFile.readAsString();
 
-    // Replace default LaunchImage reference with a unique one per client
-    content = content.replaceAll('LaunchImage', 'LaunchImage$appName');
+      content = content.replaceAll('LaunchImage', 'LaunchImage$appName');
 
-    // De-duplicate lines (common issue with splash_master)
-    final lines = content.split('\n');
-    final uniqueContent = lines.toSet().toList().join('\n');
+      // De-duplicate lines (common issue with splash_master)
+      final lines = content.split('\n');
+      final uniqueContent = lines.toSet().toList().join('\n');
 
-    await storyboardFile.writeAsString(uniqueContent);
-  }
+      await storyboardFile.writeAsString(uniqueContent);
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to patch iOS LaunchScreen storyboard.',
+        fix: 'Check write permissions for "${storyboardFile.path}".',
+        originalStackTrace: s,
+      );
+    }
+  } */
 
   /// Fixes a specific Android adaptive icon bug.
   Future<void> cleanAndroidIconCache() async {
@@ -110,8 +145,12 @@ class WhiteLabelService {
     );
 
     if (buggyDir.existsSync()) {
-      print('🤖 Cleaning Android v26 icon cache...');
-      await buggyDir.delete(recursive: true);
+      Logger.info('Cleaning Android v26 icon cache...');
+      try {
+        await buggyDir.delete(recursive: true);
+      } catch (e) {
+        Logger.warning('Failed to clean Android icon cache: $e');
+      }
     }
   }
 
@@ -132,14 +171,27 @@ class WhiteLabelService {
     final buildFile = File(p.join(projectDir, 'build', subPath));
 
     if (!buildFile.existsSync()) {
-      throw BuildException('Build artifact not found at ${buildFile.path}');
+      throw BuildException(
+        'Build artifact not found at "${buildFile.path}"',
+        fix:
+            'Verify the Flutter build succeeded and created the expected output.',
+      );
     }
 
     final newName = '${clientName}_v${version.replaceAll('+', '_')}.$type';
     final destinationPath = p.join(buildFile.parent.path, newName);
 
-    print('📦 Renaming artifact to: $newName');
-    return await buildFile.rename(destinationPath);
+    Logger.info('Renaming build artifact to: $newName');
+    try {
+      return await buildFile.rename(destinationPath);
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to rename artifact from "${buildFile.path}" to "$destinationPath"',
+        fix:
+            'Check if the file is locked by another process or missing write permissions.',
+        originalStackTrace: s,
+      );
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -150,11 +202,10 @@ class WhiteLabelService {
     final file = File(p.join(projectDir, '.udaraignore'));
 
     if (await file.exists()) {
-      // Don't touch existing user config
       return;
     }
 
-    print('🛡️ Creating default .udaraignore file...');
+    Logger.info('Creating default .udaraignore file...');
 
     const defaultContent = '''
 # Udara CLI ignore file
@@ -168,9 +219,12 @@ service_account.json
 *.keystore
 ''';
 
-    await file.writeAsString(defaultContent.trim());
-
-    print('✅ .udaraignore created');
+    try {
+      await file.writeAsString(defaultContent.trim());
+      Logger.success('.udaraignore created');
+    } catch (e) {
+      Logger.warning('Could not create default .udaraignore file: $e');
+    }
   }
 
   Future<void> _copyDirectory(
@@ -211,7 +265,7 @@ service_account.json
       );
 
       if (shouldSkip) {
-        print('🔒 Skipping $relativePath');
+        Logger.info('Skipping ignored asset: $relativePath');
         continue;
       }
 
@@ -251,15 +305,20 @@ service_account.json
       return const _BrandingConfig();
     }
 
-    final lines = await ignoreFile.readAsLines();
+    try {
+      final lines = await ignoreFile.readAsLines();
 
-    final excludes = lines
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .where((e) => !e.startsWith('#'))
-        .toList();
+      final excludes = lines
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .where((e) => !e.startsWith('#'))
+          .toList();
 
-    return _BrandingConfig(excludes: excludes);
+      return _BrandingConfig(excludes: excludes);
+    } catch (e) {
+      Logger.warning('Failed to read .udaraignore file: $e');
+      return const _BrandingConfig();
+    }
   }
 }
 
@@ -276,84 +335,100 @@ class CleanupService {
   Future<void> performFullCleanup({
     String? appNameForCleanup,
     bool fontsWereChanged = false,
+    bool isWhiteLabel = false,
   }) async {
-    print('\n🧹 Starting project cleanup...');
+    Logger.info('Starting project cleanup...');
 
-    await _restoreYamlFiles();
-
+    await _restoreBackedUpFiles(!isWhiteLabel);
     await _removeTempFiles();
-
-    if (appNameForCleanup != null) {
-      await _revertIosStoryboard(appNameForCleanup);
-    }
 
     if (fontsWereChanged) {
       await _restoreDefaultFonts();
     }
 
-    print('✅ Project restored to original state.');
+    Logger.success('Project restored to original state.');
   }
 
   // --------------------------------------------------------------------------
   // RESTORATION LOGIC
   // --------------------------------------------------------------------------
 
-  Future<void> _restoreYamlFiles() async {
+  Future<void> _restoreBackedUpFiles(bool restorePbxproj) async {
     final filesToRestore = [
       'pubspec.yaml',
       'flutter_launcher_icons.yaml',
+      if (restorePbxproj) p.join('ios', 'Runner.xcodeproj', 'project.pbxproj'),
     ];
 
     for (var fileName in filesToRestore) {
       final file = File(p.join(projectDir, fileName));
-      if (File('${file.path}.bak').existsSync()) {
-        print('  -> Restoring $fileName...');
-        await config.restoreBackup(file);
+      final backupFile = File('${file.path}.bak');
+
+      if (backupFile.existsSync()) {
+        Logger.info('Restoring $fileName...');
+        try {
+          await config.restoreBackup(file);
+        } catch (e) {
+          Logger.warning('Failed to restore backup for $fileName: $e');
+        }
       }
     }
   }
 
   Future<void> _removeTempFiles() async {
-    // Remove the temporary .env in the root
     final rootEnv = File(p.join(projectDir, '.env'));
     if (rootEnv.existsSync()) {
-      print('  -> Removing temporary .env...');
-      await rootEnv.delete();
+      Logger.info('Removing temporary .env');
+      try {
+        await rootEnv.delete();
+      } catch (e) {
+        Logger.warning('Failed to delete temporary .env file: $e');
+      }
     }
 
-    // Remove the temporary branding assets folder
     final brandingDir = Directory(p.join(projectDir, 'assets', 'branding'));
     if (brandingDir.existsSync()) {
-      print('  -> Removing branding assets...');
-      await brandingDir.delete(recursive: true);
+      Logger.info('Removing branding assets');
+      try {
+        await brandingDir.delete(recursive: true);
+      } catch (e) {
+        Logger.warning('Failed to delete branding assets directory: $e');
+      }
     }
   }
 
-  Future<void> _revertIosStoryboard(String appName) async {
+  /*   Future<void> _revertIosStoryboard(String appName) async {
     final storyboardFile = File(
       p.join(
           projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
     );
 
     if (storyboardFile.existsSync()) {
-      print('  -> Reverting iOS LaunchScreen changes...');
-      var content = await storyboardFile.readAsString();
-      // Revert the unique client name back to the default identifier
-      content = content.replaceAll('LaunchImage$appName', 'LaunchImage');
-      await storyboardFile.writeAsString(content);
+      Logger.info('Reverting iOS LaunchScreen changes...');
+      try {
+        var content = await storyboardFile.readAsString();
+        content = content.replaceAll('LaunchImage$appName', 'LaunchImage');
+        await storyboardFile.writeAsString(content);
+      } catch (e) {
+        Logger.warning('Failed to revert iOS LaunchScreen storyboard: $e');
+      }
     }
-  }
+  } */
 
   Future<void> _restoreDefaultFonts() async {
     final targetFontsDir = Directory(p.join(projectDir, 'assets', 'fonts'));
     final backupFontsDir = Directory('${targetFontsDir.path}.bak');
 
     if (backupFontsDir.existsSync()) {
-      print('  -> Restoring default system fonts...');
-      if (targetFontsDir.existsSync()) {
-        await targetFontsDir.delete(recursive: true);
+      Logger.info('Restoring default system fonts...');
+      try {
+        if (targetFontsDir.existsSync()) {
+          await targetFontsDir.delete(recursive: true);
+        }
+        await backupFontsDir.rename(targetFontsDir.path);
+      } catch (e) {
+        Logger.warning('Failed to restore default fonts: $e');
       }
-      await backupFontsDir.rename(targetFontsDir.path);
     }
   }
 }

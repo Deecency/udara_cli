@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
+import '../core.dart';
 
 class ConfigService {
   static const String _configFileName = '.udara_cli_config.json';
@@ -17,30 +17,57 @@ class ConfigService {
 
   /// Parses an environment file into a Map.
   Future<Map<String, String>> parseEnvFile(File envFile) async {
-    if (!envFile.existsSync()) return {};
-
-    final envVars = <String, String>{};
-    final lines = await envFile.readAsLines();
-
-    for (final line in lines) {
-      final trimmed = line.trim();
-      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-
-      final parts = trimmed.split('=');
-      if (parts.length >= 2) {
-        final key = parts[0].trim();
-        final value = parts.sublist(1).join('=').trim();
-        // Remove surrounding quotes
-        envVars[key] = value.replaceAll(RegExp(r'^"|"$'), '');
-      }
+    if (!envFile.existsSync()) {
+      return {};
     }
-    return envVars;
+
+    try {
+      final envVars = <String, String>{};
+      final lines = await envFile.readAsLines();
+
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+
+        final parts = trimmed.split('=');
+        if (parts.length >= 2) {
+          final key = parts[0].trim();
+          final value = parts.sublist(1).join('=').trim();
+          // Remove surrounding quotes
+          envVars[key] = value.replaceAll(RegExp(r'^"|"$'), '');
+        }
+      }
+      return envVars;
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to read environment file at "${envFile.path}"',
+        fix:
+            'Ensure the file is readable and properly formatted as KEY=VALUE pairs.',
+        originalStackTrace: s,
+      );
+    }
   }
 
   /// Copies a client env file to the root .env for the Flutter build.
   Future<File> copyToRootEnv(File sourceEnv, {bool isTest = false}) async {
+    if (!sourceEnv.existsSync()) {
+      throw BuildException(
+        'Source environment file missing at "${sourceEnv.path}"',
+        fix:
+            'Verify the client directory contains the expected environment file.',
+      );
+    }
+
     final targetPath = p.join(projectDir, '.env');
-    return await sourceEnv.copy(targetPath);
+    try {
+      return await sourceEnv.copy(targetPath);
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to copy environment file to root directory.',
+        fix: 'Check write permissions for "$targetPath".',
+        originalStackTrace: s,
+      );
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -48,20 +75,24 @@ class ConfigService {
   // --------------------------------------------------------------------------
 
   /// Safely updates a value in a YAML file using YamlEditor.
-  /// This preserves comments and formatting.
+  /// Preserves comments and formatting.
   Future<void> updateYamlValue(
       File yamlFile, List<Object> path, Object newValue) async {
-    if (!yamlFile.existsSync()) return;
-
-    final content = await yamlFile.readAsString();
-    final editor = YamlEditor(content);
+    if (!yamlFile.existsSync()) {
+      Logger.warning(
+          'Cannot update YAML: File not found at "${yamlFile.path}"');
+      return;
+    }
 
     try {
+      final content = await yamlFile.readAsString();
+      final editor = YamlEditor(content);
       editor.update(path, newValue);
       await yamlFile.writeAsString(editor.toString());
     } catch (e) {
-      // If path doesn't exist, we might need to use 'set' logic depending on requirements
-      print('Could not update YAML path ${path.join('.')}: $e');
+      Logger.warning(
+        'Could not update YAML path "${path.join('.')}" in "${yamlFile.path}": $e',
+      );
     }
   }
 
@@ -71,47 +102,129 @@ class ConfigService {
     required List<String> requiredExtraAssets,
   }) async {
     final file = File(p.join(projectDir, 'pubspec.yaml'));
-    final content = await file.readAsString();
-    final editor = YamlEditor(content);
-
-    // Get current assets or empty list
-    final yaml = loadYaml(content);
-    final currentAssets =
-        (yaml['flutter']?['assets'] as YamlList?)?.toList() ?? [];
-
-    // Filter out old branding paths and specific env paths
-    final newAssets = currentAssets.where((a) {
-      final s = a.toString();
-      return !s.contains('assets/branding/') && !s.contains('.env');
-    }).toList();
-
-    // Add new entries
-    newAssets.add('assets/branding/$clientAssetPath/');
-    for (var asset in requiredExtraAssets) {
-      if (!newAssets.contains(asset)) newAssets.add(asset);
+    if (!file.existsSync()) {
+      throw BuildException(
+        'pubspec.yaml not found at project root.',
+        fix:
+            'Ensure you are running the command from a valid Flutter project root.',
+      );
     }
 
-    editor.update(['flutter', 'assets'], newAssets);
-    await file.writeAsString(editor.toString());
+    try {
+      final content = await file.readAsString();
+      final editor = YamlEditor(content);
+
+      final yaml = loadYaml(content);
+      final currentAssets =
+          (yaml['flutter']?['assets'] as YamlList?)?.toList() ?? [];
+
+      // Filter out old branding paths and specific env paths
+      final newAssets = currentAssets.where((a) {
+        final s = a.toString();
+        return !s.contains('assets/branding/') && !s.contains('.env');
+      }).toList();
+
+      // Add new entries
+      newAssets.add('assets/branding/$clientAssetPath/');
+      for (var asset in requiredExtraAssets) {
+        if (!newAssets.contains(asset)) newAssets.add(asset);
+      }
+
+      editor.update(['flutter', 'assets'], newAssets);
+      await file.writeAsString(editor.toString());
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to update assets in pubspec.yaml',
+        fix:
+            'Check if pubspec.yaml has valid syntax and a "flutter:" key defined.',
+        originalStackTrace: s,
+      );
+    }
+  }
+
+  Future<void> updatePubspecFonts(List<dynamic> fontList) async {
+    final file = File(p.join(projectDir, 'pubspec.yaml'));
+    if (!file.existsSync()) {
+      throw BuildException(
+        'pubspec.yaml not found when trying to update fonts.',
+        fix: 'Verify the Flutter project contains pubspec.yaml.',
+      );
+    }
+
+    try {
+      final content = await file.readAsString();
+      final editor = YamlEditor(content);
+      editor.update(['flutter', 'fonts'], fontList);
+      await file.writeAsString(editor.toString());
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to write font configuration to pubspec.yaml',
+        fix: 'Verify the "flutter:" entry exists in pubspec.yaml.',
+        originalStackTrace: s,
+      );
+    }
+  }
+
+  Future<void> addInitialAssetEntries() async {
+    final file = File(p.join(projectDir, 'pubspec.yaml'));
+    if (!file.existsSync()) return;
+
+    try {
+      final content = await file.readAsString();
+      final editor = YamlEditor(content);
+      final yaml = loadYaml(content);
+
+      final flutter = yaml['flutter'] as YamlMap?;
+      final currentAssets = (flutter?['assets'] as YamlList?)?.toList() ?? [];
+
+      const defaultEnv = 'clients/default/.env';
+
+      if (!currentAssets.contains(defaultEnv)) {
+        currentAssets.add(defaultEnv);
+        editor.update(['flutter', 'assets'], currentAssets);
+        await file.writeAsString(editor.toString());
+        Logger.success('Added default .env to pubspec assets.');
+      }
+    } catch (e) {
+      Logger.warning('Failed to add initial asset entries to pubspec.yaml: $e');
+    }
   }
 
   // --------------------------------------------------------------------------
   // BACKUP & RESTORE
   // --------------------------------------------------------------------------
 
-  /// Creates a backup of a file. Returns the backup file.
+  /// Creates a backup of a file (.bak extension). Returns the backup file.
   Future<File> createBackup(File file) async {
     if (!file.existsSync()) {
-      throw FileSystemException('File not found for backup', file.path);
+      throw BuildException(
+        'File not found for backup: "${file.path}"',
+        fix:
+            'Ensure mandatory project files (like pubspec.yaml) exist before running build.',
+      );
     }
-    return await file.copy('${file.path}.bak');
+
+    try {
+      return await file.copy('${file.path}.bak');
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to create backup file for "${file.path}"',
+        fix: 'Check directory permissions for "${file.parent.path}".',
+        originalStackTrace: s,
+      );
+    }
   }
 
   /// Restores a file from its .bak version and deletes the backup.
   Future<void> restoreBackup(File originalFile) async {
     final backup = File('${originalFile.path}.bak');
     if (backup.existsSync()) {
-      await backup.rename(originalFile.path);
+      try {
+        await backup.rename(originalFile.path);
+      } catch (e) {
+        Logger.warning(
+            'Could not restore backup for "${originalFile.path}": $e');
+      }
     }
   }
 
@@ -121,9 +234,66 @@ class ConfigService {
 
   Future<String> getPubspecVersion() async {
     final file = File(p.join(projectDir, 'pubspec.yaml'));
-    final yaml = loadYaml(await file.readAsString());
-    return yaml['version']?.toString() ?? '1.0.0';
+    if (!file.existsSync()) {
+      throw BuildException(
+        'pubspec.yaml not found at "${file.path}"',
+        fix: 'Verify you are in the root directory of a Flutter project.',
+      );
+    }
+
+    try {
+      final yaml = loadYaml(await file.readAsString());
+      return yaml['version']?.toString() ?? '1.0.0';
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to parse version from pubspec.yaml',
+        fix:
+            'Ensure pubspec.yaml has a valid "version:" entry (e.g., 1.0.0+1).',
+        originalStackTrace: s,
+      );
+    }
   }
+
+  void updateDevelopmentTeam(String projectRoot, {String? teamId}) {
+    if (teamId == null) return;
+    final pbxprojFile = File(
+      '$projectRoot/ios/Runner.xcodeproj/project.pbxproj',
+    );
+
+    if (!pbxprojFile.existsSync()) {
+      throw BuildException(
+        'project.pbxproj not found at "${pbxprojFile.path}"',
+        fix: 'Ensure the iOS project directory is intact.',
+      );
+    }
+
+    try {
+      final contents = pbxprojFile.readAsStringSync();
+      final pattern = RegExp(r'DEVELOPMENT_TEAM = [^;]+;');
+
+      if (!pattern.hasMatch(contents)) {
+        Logger.warning('DEVELOPMENT_TEAM key not found in project.pbxproj');
+        return;
+      }
+
+      final updated = contents.replaceAll(
+        pattern,
+        'DEVELOPMENT_TEAM = $teamId;',
+      );
+
+      pbxprojFile.writeAsStringSync(updated);
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to update iOS DEVELOPMENT_TEAM in project.pbxproj',
+        fix: 'Check file permissions for "${pbxprojFile.path}".',
+        originalStackTrace: s,
+      );
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // CLI GLOBAL CONFIGURATION (USER HOME DIR)
+  // --------------------------------------------------------------------------
 
   /// Get the config file path in user's home directory
   static String get _configFilePath {
@@ -145,7 +315,7 @@ class ConfigService {
       final content = await configFile.readAsString();
       return jsonDecode(content) as Map<String, dynamic>;
     } catch (e) {
-      print('Warning: Failed to load config file: $e');
+      Logger.warning('Failed to load CLI configuration file: $e');
       return {};
     }
   }
@@ -159,36 +329,7 @@ class ConfigService {
         const JsonEncoder.withIndent('  ').convert(config),
       );
     } catch (e) {
-      print('Warning: Failed to save config file: $e');
-    }
-  }
-
-  Future<void> updatePubspecFonts(List<dynamic> fontList) async {
-    final file = File(p.join(projectDir, 'pubspec.yaml'));
-    final content = await file.readAsString();
-    final editor = YamlEditor(content);
-
-    editor.update(['flutter', 'fonts'], fontList);
-
-    await file.writeAsString(editor.toString());
-  }
-
-  Future<void> addInitialAssetEntries() async {
-    final file = File(p.join(projectDir, 'pubspec.yaml'));
-    final content = await file.readAsString();
-    final editor = YamlEditor(content);
-    final yaml = loadYaml(content);
-
-    final flutter = yaml['flutter'] as YamlMap?;
-    final currentAssets = (flutter?['assets'] as YamlList?)?.toList() ?? [];
-
-    const defaultEnv = 'clients/default/.env';
-
-    if (!currentAssets.contains(defaultEnv)) {
-      currentAssets.add(defaultEnv);
-      editor.update(['flutter', 'assets'], currentAssets);
-      await file.writeAsString(editor.toString());
-      print('✅ Added default .env to pubspec assets.');
+      Logger.warning('Failed to save CLI configuration file: $e');
     }
   }
 
@@ -230,21 +371,20 @@ class ConfigService {
 
   /// Show current configuration (without sensitive data)
   static Future<void> showConfig() async {
-    final isSlackConfigured = await ConfigService.isSlackConfigured();
+    final slackEnabled = await ConfigService.isSlackConfigured();
 
-    print('\n📋 Current CLI Configuration:');
-    print('─' * 40);
-    print(
-        'Slack Notifications: ${isSlackConfigured ? '✅ Enabled' : '❌ Disabled'}');
+    Logger.phase('📋 Current CLI Configuration');
+    Logger.info(
+        'Slack Notifications: ${slackEnabled ? '✅ Enabled' : '❌ Disabled'}');
 
-    if (isSlackConfigured) {
+    if (slackEnabled) {
       final token = await getSlackBotToken();
-      final maskedToken =
-          token!.length > 12 ? '${token.substring(0, 12)}...' : '***';
-      print('Slack Bot Token: $maskedToken');
+      final maskedToken = (token != null && token.length > 12)
+          ? '${token.substring(0, 12)}...'
+          : '***';
+      Logger.info('Slack Bot Token: $maskedToken');
     }
 
-    print('Config File: $_configFilePath');
-    print('─' * 40);
+    Logger.info('Config File Location: $_configFilePath');
   }
 }

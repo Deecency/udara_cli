@@ -216,6 +216,40 @@ The whitelabel system operates in two phases:
 - Content variations: Different assets, logos, or branding elements per client
 - Custom fonts: Client-specific `FONT_FAMILY` for typography customization
 
+
+## IOS BUILDS: iOS Development Team ID
+
+You can now configure individual **Apple Developer Team IDs** on a per-client basis. During iOS builds, `udara_cli` dynamically patches your Xcode project (`ios/Runner.xcodeproj/project.pbxproj`) with the target client's team ID and automatically reverts it back to default during project cleanup.
+
+---
+
+### Context
+
+1. **Add the Team ID to the Client Environment**:
+Open your client's environment file (`clients/<CLIENT_NAME>/.env` or `.env_test`) and define the `DEVELOPMENT_TEAM` key with your 10-character Apple Developer Team ID:
+```env
+# clients/microsoft/.env
+APP_NAME_PROD="Microsoft App"
+BUNDLE_ID="com.microsoft.whitelabel"
+APP_ICON_PATH="assets/branding/microsoft/logo_small.png"
+ASSETS_PATH="clients/microsoft/"
+
+# iOS Signing Configuration
+DEVELOPMENT_TEAM="ABC123XYZ9"
+
+```
+
+
+2. **Run the Build**:
+Trigger your iOS build targeting the client:
+```bash
+udara_cli build --client microsoft --platform ios
+
+```
+
+
+> 💡 **Note:** If `DEVELOPMENT_TEAM` is omitted from the client's environment file, `udara_cli` will leave your Xcode project's existing signing configuration untouched.
+
 ### Required Environment Variables
 
 Each client must have corresponding environment files in their respective `clients/client_name/` directory with the following structure:
@@ -329,6 +363,8 @@ APP_NAME_DEV="Default App Dev"
 APP_NAME_STAGING="Default App Staging"
 APP_NAME_PROD="Default App"
 BUNDLE_ID="com.company.defaultapp"
+# iOS Signing Configuration
+DEVELOPMENT_TEAM="ABC123XYZ9"
 ASSETS_PATH="clients/default/"
 APP_ICON_PATH="assets/branding/default/logo_small.png"
 APP_LOGO_PATH="assets/branding/default/logo_large.png"
@@ -348,6 +384,8 @@ APP_NAME_DEV="Client A App Dev"
 APP_NAME_STAGING="Client A App Staging"
 APP_NAME_PROD="Client A App"
 BUNDLE_ID="com.company.clientaapp"
+# iOS Signing Configuration
+DEVELOPMENT_TEAM="ABC123XYZ9"
 ASSETS_PATH="clients/clientA/"
 APP_ICON_PATH="assets/branding/clientA/logo_small.png"
 APP_LOGO_PATH="assets/branding/clientA/logo_large.png"
@@ -506,3 +544,5 @@ See [CHANGELOG.md](CHANGELOG.md) for a list of changes in each version.
 ---
 
 **Made with ❤️ for the Flutter community**
+
+

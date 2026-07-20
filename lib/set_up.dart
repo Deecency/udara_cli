@@ -40,23 +40,32 @@ class SetupCommand extends UdaraCommand {
     final clientsOption = argResults!['clients'] as String?;
     final notifyOnly = argResults!['notify'] as bool;
 
-    if (reset) {
-      await _resetConfiguration();
-      return;
-    }
+    try {
+      if (reset) {
+        await _resetConfiguration();
+        return;
+      }
 
-    if (clientsOption != null) {
-      await _handleClientsSetup(clientsOption);
-      return;
-    }
+      if (clientsOption != null) {
+        await _handleClientsSetup(clientsOption);
+        return;
+      }
 
-    if (notifyOnly) {
-      await _handleNotificationSetup();
-      return;
-    }
+      if (notifyOnly) {
+        await _handleNotificationSetup();
+        return;
+      }
 
-    // Default: Full project configuration setup
-    await _handleProjectSetup();
+      await _handleProjectSetup();
+    } on BuildException catch (e, s) {
+      Logger.error(e.message,
+          cause: e.fix, stackTrace: e.originalStackTrace ?? s);
+      rethrow;
+    } catch (e, s) {
+      Logger.error('An unexpected error occurred during setup.',
+          cause: e, stackTrace: s);
+      rethrow;
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -64,20 +73,21 @@ class SetupCommand extends UdaraCommand {
   // --------------------------------------------------------------------------
 
   Future<void> _handleProjectSetup() async {
-    print('🚀 Welcome to Udara CLI Setup!');
+    Logger.phase('Udara CLI Project Setup');
 
-    print('\n--- 📦 Phase 1: Dependencies ---');
+    Logger.phase('1: Dependencies');
     await _ensureDependencies();
 
-    print('\n--- ⚙️ Phase 2: Configuration Files ---');
+    Logger.phase('2: Configuration Files');
     await _ensureConfigurationFiles();
 
-    print('\n✅ Project setup completed successfully!');
-    print('💡 Next: Run "udara_cli setup --clients name" to add clients.');
+    Logger.success('Project setup completed successfully!');
+    Logger.info(
+        'Next step: Run "udara_cli setup --clients <name1,name2>" to initialize clients.');
   }
 
   Future<void> _handleClientsSetup(String clientsInput) async {
-    print('🚀 Initializing Client Directories...\n');
+    Logger.phase('🚀 Initializing Client Directories');
 
     final clientNames = clientsInput
         .split(',')
@@ -88,26 +98,42 @@ class SetupCommand extends UdaraCommand {
     if (!clientNames.contains('default')) clientNames.add('default');
 
     final clientsDir = Directory(p.join(projectDir, 'clients'));
-    if (!await clientsDir.exists()) await clientsDir.create();
+    try {
+      if (!await clientsDir.exists()) await clientsDir.create();
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to create "clients" directory at "${clientsDir.path}"',
+        fix: 'Check directory permissions.',
+        originalStackTrace: s,
+      );
+    }
 
     for (final clientName in clientNames) {
       await _createClientStructure(clientsDir.path, clientName);
     }
 
     // Ensure branding directory exists in assets
-    final brandingDir = Directory(p.join(projectDir, 'assets', 'branding'));
-    await brandingDir.create(recursive: true);
+    try {
+      final brandingDir = Directory(p.join(projectDir, 'assets', 'branding'));
+      await brandingDir.create(recursive: true);
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to create branding assets directory.',
+        fix: 'Check permissions for "assets/branding".',
+        originalStackTrace: s,
+      );
+    }
 
     // Update pubspec with the default .env entry
     await config.addInitialAssetEntries();
 
-    print('\n✅ Client setup completed successfully!');
+    Logger.success('Client setup completed successfully!');
   }
 
   Future<void> _handleNotificationSetup() async {
-    print('🚀 Notification Setup...');
+    Logger.phase('Notification Setup');
     await _configureSlack();
-    print('\n✅ Notification setup completed!');
+    Logger.success('Notification setup completed!');
   }
 
   // --------------------------------------------------------------------------
@@ -116,50 +142,71 @@ class SetupCommand extends UdaraCommand {
 
   Future<void> _ensureDependencies() async {
     final pubspecFile = File(p.join(projectDir, 'pubspec.yaml'));
-    if (!pubspecFile.existsSync())
-      throw BuildException('pubspec.yaml not found.');
+    if (!pubspecFile.existsSync()) {
+      throw BuildException(
+        'pubspec.yaml not found at project root.',
+        fix:
+            'Ensure you are running setup inside a valid Flutter project directory.',
+      );
+    }
 
     final requiredDeps = ['rename', 'flutter_launcher_icons', 'splash_master'];
 
-    for (final dep in requiredDeps) {
+    try {
       final content = await pubspecFile.readAsString();
       final yaml = loadYaml(content);
       final devDeps = yaml['dev_dependencies'] as YamlMap?;
 
-      if (devDeps?[dep] == null) {
-        print('📦 Adding $dep...');
-        await runShell('flutter pub add --dev $dep');
-      } else {
-        print('✅ $dep is already installed.');
+      for (final dep in requiredDeps) {
+        if (devDeps?[dep] == null) {
+          Logger.info('Adding dev dependency: $dep...');
+          await runShell('flutter pub add --dev $dep');
+        } else {
+          Logger.info('Dependency already installed: $dep');
+        }
       }
+    } catch (e, s) {
+      if (e is BuildException) rethrow;
+      throw BuildException(
+        'Failed to verify or install required dependencies.',
+        fix: 'Ensure "pubspec.yaml" is valid and Flutter CLI is accessible.',
+        originalStackTrace: s,
+      );
     }
   }
 
   Future<void> _ensureConfigurationFiles() async {
-    // 1. flutter_launcher_icons.yaml
-    final iconsFile = File(p.join(projectDir, 'flutter_launcher_icons.yaml'));
-    if (!iconsFile.existsSync()) {
-      await iconsFile.writeAsString('''flutter_launcher_icons:
+    try {
+      final iconsFile = File(p.join(projectDir, 'flutter_launcher_icons.yaml'));
+      if (!iconsFile.existsSync()) {
+        await iconsFile.writeAsString('''flutter_launcher_icons:
   image_path: "assets/logo/app_icon.png"
   android: true
   ios: true
 ''');
-      print('📄 Created flutter_launcher_icons.yaml');
-    }
+        Logger.success('Created flutter_launcher_icons.yaml');
+      }
 
-    // 2. splash_master in pubspec.yaml
-    final pubspecFile = File(p.join(projectDir, 'pubspec.yaml'));
-    final yaml = loadYaml(await pubspecFile.readAsString());
-    if (yaml['splash_master'] == null) {
-      await config.updateYamlValue(pubspecFile, [
-        'splash_master'
-      ], {
-        'image': 'assets/logo/splash_icon.png',
-        'color': '#FFFFFF',
-        'ios_content_mode': 'center',
-        'android_gravity': 'center',
-      });
-      print('📄 Added splash_master template to pubspec.yaml');
+      // 2. splash_master in pubspec.yaml
+      final pubspecFile = File(p.join(projectDir, 'pubspec.yaml'));
+      final yaml = loadYaml(await pubspecFile.readAsString());
+      if (yaml['splash_master'] == null) {
+        await config.updateYamlValue(pubspecFile, [
+          'splash_master'
+        ], {
+          'image': 'assets/logo/splash_icon.png',
+          'color': '#FFFFFF',
+          'ios_content_mode': 'center',
+          'android_gravity': 'center',
+        });
+        Logger.success('Added splash_master template to pubspec.yaml');
+      }
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to create baseline configuration files.',
+        fix: 'Check project directory write permissions.',
+        originalStackTrace: s,
+      );
     }
   }
 
@@ -172,39 +219,47 @@ class SetupCommand extends UdaraCommand {
     final alreadyExists = await clientDir.exists();
 
     if (!alreadyExists) {
-      print('🔧 Creating structure for: $clientName');
+      Logger.info('Creating structure for client: $clientName');
     } else {
-      print('🔄 Updating existing client: $clientName');
+      Logger.info('Updating existing client: $clientName');
     }
 
-    // Ensure base directory exists
-    await clientDir.create(recursive: true);
+    try {
+      // Ensure base directory exists
+      await clientDir.create(recursive: true);
 
-    // Ensure folders exist
-    await Directory(
-      p.join(clientDir.path, 'fonts'),
-    ).create(recursive: true);
+      // Ensure folders exist
+      await Directory(
+        p.join(clientDir.path, 'fonts'),
+      ).create(recursive: true);
 
-    // Create files only if missing
-    await _createFileIfMissing(
-      p.join(clientDir.path, '.env'),
-      _envTemplate(clientName, true),
-    );
+      // Create files only if missing
+      await _createFileIfMissing(
+        p.join(clientDir.path, '.env'),
+        _envTemplate(clientName, true),
+      );
 
-    await _createFileIfMissing(
-      p.join(clientDir.path, '.env_test'),
-      _envTemplate(clientName, false),
-    );
+      await _createFileIfMissing(
+        p.join(clientDir.path, '.env_test'),
+        _envTemplate(clientName, false),
+      );
 
-    await _createFileIfMissing(
-      p.join(clientDir.path, 'logo_small.png'),
-      '# Placeholder',
-    );
+      await _createFileIfMissing(
+        p.join(clientDir.path, 'logo_small.png'),
+        '# Placeholder',
+      );
 
-    await _createFileIfMissing(
-      p.join(clientDir.path, 'logo_large.png'),
-      '# Placeholder',
-    );
+      await _createFileIfMissing(
+        p.join(clientDir.path, 'logo_large.png'),
+        '# Placeholder',
+      );
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to create client directory structure for "$clientName".',
+        fix: 'Ensure write permissions for "${clientDir.path}".',
+        originalStackTrace: s,
+      );
+    }
   }
 
   Future<void> _createFileIfMissing(
@@ -214,13 +269,12 @@ class SetupCommand extends UdaraCommand {
     final file = File(path);
 
     if (await file.exists()) {
-      print('⏭️ Skipping existing file: ${p.basename(path)}');
+      Logger.info('Skipping existing file: ${p.basename(path)}');
       return;
     }
 
     await file.writeAsString(content);
-
-    print('📄 Created: ${p.basename(path)}');
+    Logger.success('Created: ${p.basename(path)}');
   }
 
   // --------------------------------------------------------------------------
@@ -230,6 +284,7 @@ class SetupCommand extends UdaraCommand {
   String _envTemplate(String client, bool isProd) {
     return '''# Environment for $client (${isProd ? 'PROD' : 'TEST'})
 BUNDLE_ID=com.udara.$client${isProd ? '' : '.test'}
+DEVELOPMENT_TEAM="ABCD1234" #IOS Development teamId
 APP_NAME_PROD=$client App${isProd ? '' : ' Test'}
 APP_ICON_PATH="assets/branding/$client/logo_small.png"
 APP_LOGO_PATH="assets/branding/$client/logo_large.png"
@@ -240,19 +295,27 @@ ASSETS_PATH="clients/$client/"
   Future<void> _configureSlack() async {
     stdout.write('🔑 Enter Slack Bot Token (xoxb-...): ');
     final token = stdin.readLineSync()?.trim();
+
     if (token != null && token.startsWith('xoxb-')) {
       await ConfigService.setSlackBotToken(token);
-      print('✅ Token saved.');
+      Logger.success('Slack Bot Token saved successfully.');
     } else {
-      print('❌ Invalid token.');
+      throw BuildException(
+        'Invalid Slack Bot Token provided.',
+        fix: 'Slack Bot Tokens must start with "xoxb-".',
+      );
     }
   }
 
   Future<void> _resetConfiguration() async {
-    stdout.write('⚠️ Reset all settings? (y/N): ');
-    if (stdin.readLineSync()?.toLowerCase() == 'y') {
+    stdout.write('⚠️ Are you sure you want to reset all CLI settings? (y/N): ');
+    final response = stdin.readLineSync()?.trim().toLowerCase();
+
+    if (response == 'y' || response == 'yes') {
       await ConfigService.removeSlackConfig();
-      print('✅ Reset complete.');
+      Logger.success('CLI configuration successfully reset.');
+    } else {
+      Logger.info('Reset cancelled.');
     }
   }
 }

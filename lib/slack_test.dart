@@ -21,110 +21,111 @@ class SlackTestCommand extends UdaraCommand {
   Future<void> run() async {
     final channel = argResults!['channel'] as String;
 
-    print('🧪 Testing Slack Integration');
-    print('═' * 50);
+    Logger.phase('🧪 Testing Slack Integration');
 
     // Check if Slack is configured
     final slackToken = await ConfigService.getSlackBotToken();
     if (slackToken == null) {
-      print('❌ Slack not configured.');
-      print('💡 Run "udara_cli setup" to configure Slack first.');
-      return;
+      throw BuildException(
+        'Slack bot token is not configured.',
+        fix: 'Run "udara_cli setup --notify" to configure your Slack token.',
+      );
     }
 
-    print('✅ Slack token found');
-    print('🎯 Target channel: $channel');
-    print('');
+    Logger.success('Slack token found');
+    Logger.info('Target channel: $channel\n');
 
-    // Create service with debug mode
     final slackService = SlackService(
       botToken: slackToken,
       channel: channel,
       debugMode: true,
     );
 
-    // Test 1: Authentication
-    print('🔐 Testing authentication...');
-    final authSuccess = await slackService.testConnection();
-    if (!authSuccess) {
-      print('❌ Authentication failed. Check your bot token.');
-      return;
+    try {
+      // Test 1: Authentication
+      Logger.info('🔐 Testing authentication...');
+      final authSuccess = await slackService.testConnection();
+
+      if (!authSuccess) {
+        _printTroubleshootingTips(channel);
+        throw BuildException(
+          'Slack authentication failed.',
+          fix:
+              'Check your bot token at https://api.slack.com/apps or re-run "udara_cli setup --notify".',
+        );
+      }
+      Logger.success('Authentication successful\n');
+
+      // Test 2: Simple message
+      Logger.info('📝 Sending test message...');
+      final messageSuccess = await slackService.sendMessage(
+        '🧪 Test message from Udara CLI at ${DateTime.now()}',
+        emoji: ':robot_face:',
+      );
+
+      if (!messageSuccess) {
+        _printTroubleshootingTips(channel);
+        throw BuildException(
+          'Failed to send test message to channel "$channel".',
+          fix: 'Verify channel existence and bot permissions.',
+        );
+      }
+      Logger.success('Simple message sent successfully\n');
+
+      // Test 3: Rich message
+      Logger.info('🎨 Sending rich message...');
+      final richSuccess = await slackService.sendRichMessage(
+        title: '🧪 Rich Message Test',
+        message: 'This is a test of rich message formatting',
+        color: 'good',
+        fields: {
+          'Test Type': 'Rich Message',
+          'Status': 'Testing',
+          'Timestamp': DateTime.now().toString(),
+        },
+      );
+
+      if (richSuccess) {
+        Logger.success('Rich message sent successfully\n');
+      } else {
+        Logger.warning('Failed to send rich message.\n');
+      }
+
+      // Test 4: Build notification simulation
+      Logger.info('🚀 Simulating build notification...');
+      await slackService.sendBuildStepNotification(
+        step: 'Test Build Step',
+        client: 'test-client',
+        platform: 'android',
+        status: 'completed',
+        additionalInfo: 'This is a test notification',
+      );
+
+      Logger.success('Slack integration test completed successfully!');
+      Logger.info(
+          'If you received messages in $channel, your Slack integration is working properly.');
+    } on BuildException catch (e, s) {
+      Logger.error(e.message,
+          cause: e.fix, stackTrace: e.originalStackTrace ?? s);
+      rethrow;
+    } catch (e, s) {
+      Logger.error('An unexpected error occurred during Slack testing.',
+          cause: e, stackTrace: s);
+      rethrow;
     }
-    print('✅ Authentication successful\n');
-
-    // Test 2: Simple message
-    print('📝 Sending test message...');
-    final messageSuccess = await slackService.sendMessage(
-      '🧪 Test message from Udara CLI at ${DateTime.now()}',
-      emoji: ':robot_face:',
-    );
-
-    if (messageSuccess) {
-      print('✅ Simple message sent successfully\n');
-    } else {
-      print('❌ Failed to send simple message\n');
-      _printTroubleshootingTips(channel);
-      return;
-    }
-
-    // Test 3: Rich message
-    print('🎨 Sending rich message...');
-    final richSuccess = await slackService.sendRichMessage(
-      title: '🧪 Rich Message Test',
-      message: 'This is a test of rich message formatting',
-      color: 'good',
-      fields: {
-        'Test Type': 'Rich Message',
-        'Status': 'Testing',
-        'Timestamp': DateTime.now().toString(),
-      },
-    );
-
-    if (richSuccess) {
-      print('✅ Rich message sent successfully\n');
-    } else {
-      print('❌ Failed to send rich message\n');
-    }
-
-    // Test 4: Build notification simulation
-    print('🚀 Simulating build notification...');
-    await slackService.sendBuildStepNotification(
-      step: 'Test Build Step',
-      client: 'test-client',
-      platform: 'android',
-      status: 'completed',
-      additionalInfo: 'This is a test notification',
-    );
-
-    print('');
-    print('🎉 Slack test completed!');
-    print(
-        '💡 If you received messages in $channel, Slack integration is working correctly.');
   }
 
   void _printTroubleshootingTips(String channel) {
-    print('🔧 Troubleshooting Tips:');
-    print('');
-    print('1. Channel Issues:');
-    print('   • Make sure channel "$channel" exists');
-    print('   • Add your bot to the channel first');
-    print('   • For private channels, use channel ID instead of name');
-    print('');
-    print('2. Bot Permissions:');
-    print('   • Go to https://api.slack.com/apps');
-    print('   • Select your app → OAuth & Permissions');
-    print('   • Ensure these scopes are added:');
-    print('     - chat:write');
-    print('     - files:write');
-    print('     - channels:read');
-    print('');
-    print('3. Bot Installation:');
-    print('   • Make sure the bot is installed in your workspace');
-    print('   • Check if the bot token starts with "xoxb-"');
-    print('');
-    print('4. Channel Access:');
-    print('   • In Slack, go to the channel');
-    print('   • Type @your-bot-name to invite it');
-    print('   • Or use /invite @your-bot-name');
+    Logger.phase('🔧 Troubleshooting Tips');
+    Logger.info('1. Channel Issues:');
+    Logger.info('   • Make sure channel "$channel" exists');
+    Logger.info(
+        '   • Add your bot to the channel first (/invite @your-bot-name)');
+    Logger.info('   • For private channels, use channel ID instead of name');
+    Logger.info('2. Bot Permissions (https://api.slack.com/apps):');
+    Logger.info(
+        '   • Ensure required scopes: chat:write, files:write, channels:read');
+    Logger.info('3. Bot Installation:');
+    Logger.info('   • Confirm the bot token starts with "xoxb-"');
   }
 }
