@@ -1,10 +1,6 @@
-import 'package:udara_cli/config.dart';
+import 'package:udara_cli/commands.dart';
 import 'package:udara_cli/core/core.dart';
-import 'package:udara_cli/scripts.dart';
-import 'package:udara_cli/set_up.dart';
-import 'package:udara_cli/slack_test.dart';
 import 'package:udara_cli/version.dart';
-import 'package:udara_cli/white_label.dart';
 
 Future<void> main(List<String> arguments) async {
   final runner = CommandRunner<void>(
@@ -41,16 +37,19 @@ Build multiple branded versions of your app with different configurations, asset
   │   
   └── flutter_launcher_icons.yaml
 
-🛠️  AVAILABLE COMMANDS:
+  AVAILABLE COMMANDS:
   • build   - Build whitelabeled app for specific client
   • whitelabel   -  Whitelabel the app with client-specific assets, app name, bundle ID, branding, custom icons and splash screens.
   • list    - Show all available clients
   • clean   - Clean build artifacts and reset project
   • setup   - Configure project, clients, or notifications
   • config  - View current CLI configuration
+  • doctor  - Validate project & client setup before building
+  • history - View recent build history for this project
+  • diff    - Compare env configuration between two clients
   • slack-test - Test Slack notification setup
 
-📚 For detailed documentation and examples:
+  For detailed documentation and examples:
     https://github.com/Deecency/udara_cli#readme
   ''',
   )
@@ -60,6 +59,9 @@ Build multiple branded versions of your app with different configurations, asset
     ..addCommand(ListClientsCommand())
     ..addCommand(SetupCommand())
     ..addCommand(ConfigCommand())
+    ..addCommand(DoctorCommand())
+    ..addCommand(HistoryCommand())
+    ..addCommand(DiffCommand())
     ..addCommand(SlackTestCommand());
 
   runner.argParser.addFlag(
@@ -101,9 +103,9 @@ Build multiple branded versions of your app with different configurations, asset
 }
 
 Future<void> _checkFirstTimeSetup(List<String> arguments) async {
-  // Don't show welcome message for certain commands
   if (arguments.isNotEmpty &&
-      ['setup', 'config', 'help', '--help', '-h'].contains(arguments.first)) {
+      ['setup', 'config', 'doctor', 'help', '--help', '-h']
+          .contains(arguments.first)) {
     return;
   }
 
@@ -165,7 +167,7 @@ void _printWelcomeMessage() {
 }
 
 void _printProjectSetupGuidance() {
-  print('🚀 GET STARTED:');
+  print('GET STARTED:');
   print('');
   print('Step 1: Initialize your project');
   print('  udara_cli setup');
@@ -182,47 +184,51 @@ void _printProjectSetupGuidance() {
   print('  udara_cli build --client apple');
   print('  └─ Generates branded APK/IPA for the client');
   print('');
-  print('💡 Optional: Set up Slack notifications');
+  print('Optional: Set up Slack notifications');
   print('  udara_cli setup --notify');
   print('');
-  print('📚 Run "udara_cli --help" for detailed command documentation');
+  print('Run "udara_cli --help" for detailed command documentation');
+  print('');
+  print('Run "udara_cli doctor" to validate your project whitelabel setup');
   print('═' * 50);
   print('');
 }
 
 void _printReturningUserMessage() {
-  print('');
-  print('👋 Welcome back to Udara CLI!');
-  print('');
-  print('💡 QUICK TIPS:');
-  print('  • Run "udara_cli list-clients" to see all available clients');
-  print('  • Run "udara_cli setup --notify" to enable Slack notifications');
-  print('  • Run "udara_cli --help" for command reference');
-  print('');
+  Logger.info('''
+
+  Welcome back to Udara CLI!
+
+  QUICK TIPS:
+    • Run "udara_cli list-clients" to see all available clients
+    • Run "udara_cli setup --notify" to enable Slack notifications
+    • Run "udara_cli --help" for command reference
+  
+  ''');
 }
 
 void _printError(String title, String message) {
-  print('');
-  print('❌ $title');
-  print('─' * (title.length + 3));
-  print(message);
+  Logger.error('');
+  Logger.error('$title');
+  Logger.error('─' * (title.length + 3));
+  Logger.error(message);
 }
 
 void _printSuggestion(String suggestion) {
-  print('');
-  print('🛠️  Suggestion: $suggestion');
+  Logger.info('');
+  Logger.info('Suggestion: $suggestion');
 }
 
 String _formatErrorHelp(String command, String issue, List<String> solutions) {
   final buffer = StringBuffer();
-  buffer.writeln('❌ $issue');
+  buffer.writeln('$issue');
   buffer.writeln('');
-  buffer.writeln('🛠️  SOLUTIONS:');
+  buffer.writeln('SOLUTIONS:');
   for (var i = 0; i < solutions.length; i++) {
     buffer.writeln('  ${i + 1}. ${solutions[i]}');
   }
   buffer.writeln('');
-  buffer.writeln('💡 Get help: udara_cli $command --help');
+  buffer.writeln('Get help: udara_cli $command --help');
   return buffer.toString();
 }
 

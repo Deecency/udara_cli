@@ -21,7 +21,7 @@ class SlackTestCommand extends UdaraCommand {
   Future<void> run() async {
     final channel = argResults!['channel'] as String;
 
-    Logger.phase('🧪 Testing Slack Integration');
+    Logger.phase('Testing Slack Integration');
 
     // Check if Slack is configured
     final slackToken = await ConfigService.getSlackBotToken();
@@ -57,7 +57,7 @@ class SlackTestCommand extends UdaraCommand {
       Logger.success('Authentication successful\n');
 
       // Test 2: Simple message
-      Logger.info('📝 Sending test message...');
+      Logger.info('Sending test message...');
       final messageSuccess = await slackService.sendMessage(
         '🧪 Test message from Udara CLI at ${DateTime.now()}',
         emoji: ':robot_face:',
@@ -73,9 +73,9 @@ class SlackTestCommand extends UdaraCommand {
       Logger.success('Simple message sent successfully\n');
 
       // Test 3: Rich message
-      Logger.info('🎨 Sending rich message...');
+      Logger.info('Sending rich message...');
       final richSuccess = await slackService.sendRichMessage(
-        title: '🧪 Rich Message Test',
+        title: 'Rich Message Test',
         message: 'This is a test of rich message formatting',
         color: 'good',
         fields: {
@@ -92,7 +92,7 @@ class SlackTestCommand extends UdaraCommand {
       }
 
       // Test 4: Build notification simulation
-      Logger.info('🚀 Simulating build notification...');
+      Logger.info('Simulating build notification...');
       await slackService.sendBuildStepNotification(
         step: 'Test Build Step',
         client: 'test-client',
@@ -116,7 +116,7 @@ class SlackTestCommand extends UdaraCommand {
   }
 
   void _printTroubleshootingTips(String channel) {
-    Logger.phase('🔧 Troubleshooting Tips');
+    Logger.phase('Troubleshooting Tips');
     Logger.info('1. Channel Issues:');
     Logger.info('   • Make sure channel "$channel" exists');
     Logger.info(

@@ -1,12 +1,12 @@
 # Udara CLI
 
-[![pub package](https://iili.io/Cwteh5x.png)](https://pub.dev/packages/udara_cli)
+[![pub package](https://img.shields.io/pub/v/udara_cli.svg)](https://pub.dev/packages/udara_cli)
 
 A powerful CLI tool for managing whitelabel Flutter projects with multi-client support. Build and maintain multiple branded versions of your Flutter app from a single codebase.
 
 ---
 
-## Features
+## Features ✨
 
 - 🏢 **Multi-client support** - Manage unlimited white-label variants
 - 🎨 **Asset management** - Client-specific icons, logos, and fonts
@@ -14,13 +14,10 @@ A powerful CLI tool for managing whitelabel Flutter projects with multi-client s
 - 🚀 **Automated builds** - One command to build for any client
 - 📱 **Slack notifications** - Get build status updates in Slack
 - 🔧 **Easy setup** - Guided project initialization
-- 🩺 **Pre-build validation** - Catch missing config, keys, or assets before a build fails
-- 📜 **Build history** - Every build is recorded locally so you can review recent runs
-- 🔍 **Client diffing** - Compare env configuration between two clients at a glance
 
 ---
 
-## Installation
+## Installation 📦
 
 ### Global Installation
 
@@ -50,7 +47,7 @@ udara_cli --version
 
 ---
 
-## Getting Started
+## Getting Started 🎯
 
 After installing the CLI, you need to initialize your project. The CLI provides a guided setup process:
 
@@ -118,7 +115,7 @@ udara_cli setup --help
 
 ---
 
-## Project Structure
+## Project Structure 📁
 
 Your Flutter project must follow this structure for the CLI to work properly:
 
@@ -156,7 +153,7 @@ your_flutter_project/
 
 ---
 
-## Environment Configuration
+## Environment Configuration 🔧
 
 ### Important: flutter_dotenv Dependency
 
@@ -251,7 +248,7 @@ udara_cli build --client microsoft --platform ios
 ```
 
 
->  **Note:** If `DEVELOPMENT_TEAM` is omitted from the client's environment file, `udara_cli` will leave your Xcode project's existing signing configuration untouched.
+> 💡 **Note:** If `DEVELOPMENT_TEAM` is omitted from the client's environment file, `udara_cli` will leave your Xcode project's existing signing configuration untouched.
 
 ### Required Environment Variables
 
@@ -404,7 +401,7 @@ ENABLE_LION=false
 
 ---
 
-## Usage
+## Usage 🚀
 
 ### Basic Build Command
 
@@ -442,7 +439,7 @@ udara_cli build --client clientA --platform android --slack --slack-channel #bui
 
 ---
 
-## Build Process
+## Build Process 🔄
 
 The CLI performs the following steps:
 
@@ -459,62 +456,11 @@ The CLI performs the following steps:
    - Fixes platform-specific issues
 4. **Final Build**: Builds the app with client-specific configuration
 5. **Cleanup**: Restores original project state
-6. **History**: Records the build (success or failure) to `.udara_build_history.json`
-7. **Notifications** (if enabled): Sends build status to Slack
+6. **Notifications** (if enabled): Sends build status to Slack
 
 ---
 
-## Diagnostics & Utility Commands 🩺
-
-### Validate Your Setup (`doctor`)
-
-Before running a build, you can check your entire project — or a single client — for common issues: missing dependencies, missing `.env` files, missing required keys, asset paths that don't point to real files, and malformed `fonts.yaml` configuration.
-
-```bash
-# Check the whole project (all clients)
-udara_cli doctor
-
-# Check a single client
-udara_cli doctor --client clientA
-```
-
-Each check reports as a pass, warning, or failure. `doctor` exits with a non-zero status code if anything fails, so it's safe to use as a pre-build gate in CI.
-
-### Build History (`history`)
-
-Every `build` run — whether it succeeds or fails — is automatically recorded to a project-local `.udara_build_history.json` file (kept to the most recent 50 entries). Use `history` to review recent builds without digging through terminal scrollback:
-
-```bash
-# Show the 10 most recent builds
-udara_cli history
-
-# Show the last 25 builds for a specific client
-udara_cli history --client clientA --limit 25
-
-# Clear all recorded history
-udara_cli history --clear
-```
-
-> **Tip:** Add `.udara_build_history.json` to your `.gitignore` — it's local build state, not something you need in version control.
-
-### Compare Clients (`diff`)
-
-If two clients are behaving differently and you're not sure why, `diff` compares their environment files side by side and highlights exactly which keys differ.
-
-```bash
-# Compare production .env for two clients
-udara_cli diff --client-a clientA --client-b clientB
-
-# Compare .env_test files instead
-udara_cli diff --client-a clientA --client-b clientB --test
-
-# Show every key, not just the ones that differ
-udara_cli diff --client-a clientA --client-b clientB --all
-```
-
----
-
-## Commands Reference
+## Commands Reference 📚
 
 ### Setup Commands
 
@@ -546,27 +492,9 @@ udara_cli --help
 udara_cli build --help
 ```
 
-### Diagnostics Commands
-
-```bash
-# Validate project & client setup
-udara_cli doctor
-udara_cli doctor --client <name>
-
-# View recent build history
-udara_cli history
-udara_cli history --client <name> --limit 25
-udara_cli history --clear
-
-# Compare env configuration between two clients
-udara_cli diff --client-a <name> --client-b <name>
-udara_cli diff --client-a <name> --client-b <name> --test
-udara_cli diff --client-a <name> --client-b <name> --all
-```
-
 ---
 
-## Prerequisites
+## Prerequisites 📋
 
 - Flutter SDK installed and configured
 - Dart SDK (comes with Flutter)
@@ -579,18 +507,15 @@ udara_cli diff --client-a <name> --client-b <name> --all
 
 ---
 
-## Troubleshooting
+## Troubleshooting 🔧
 
 ### Common Issues
-
-> Run `udara_cli doctor` first — it catches most of the issues below (missing `.env` files, missing keys, broken asset paths, missing dependencies) before you even attempt a build.
 
 1. **Client not found**: Ensure the client directory exists in `clients/` and has the corresponding `.env` file in that directory
 2. **Missing assets**: Check that all required asset paths exist and are correctly specified in the environment file
 3. **Build failures**: Ensure all Flutter dependencies are properly installed and the project builds normally before using the CLI
 4. **Environment variables not loading**: Verify that `flutter_dotenv` is installed and properly initialized in your app's main function
 5. **Command not found**: Make sure the pub cache bin directory is in your PATH
-6. **Client behaving differently than expected**: Run `udara_cli diff --client-a <name> --client-b <name>` to compare its configuration against a working client
 
 ### Getting Help
 
@@ -619,3 +544,5 @@ See [CHANGELOG.md](CHANGELOG.md) for a list of changes in each version.
 ---
 
 **Made with ❤️ for the Flutter community**
+
+

@@ -443,6 +443,7 @@ class _BrandingConfig {
 
 const _defaultExcludedPatterns = [
   'service_account.json',
+  '.udara_build_history.json',
   '*.pem',
   '*.key',
   '*.p12',

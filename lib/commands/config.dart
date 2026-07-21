@@ -7,19 +7,19 @@ class ConfigCommand extends UdaraCommand {
   @override
   final String description = '''View and manage CLI configuration settings.
 
-🎯 USAGE:
+  USAGE:
   udara_cli config [OPTIONS]
 
-📋 EXAMPLES:
+  EXAMPLES:
   # View current configuration
   udara_cli config
 
-🔧 DISPLAYS:
+  DISPLAYS:
   • Slack notification settings
   • Bot token status
   • CLI config file location
 
-💡 MANAGEMENT:
+  MANAGEMENT:
   • Use "udara_cli setup --notify" to modify Slack settings
   • Use "udara_cli setup --reset" to clear all settings''';
 
@@ -28,7 +28,7 @@ class ConfigCommand extends UdaraCommand {
     try {
       await ConfigService.showConfig();
 
-      Logger.phase('💡 Tips & Shortcuts');
+      Logger.phase('Tips & Shortcuts');
       Logger.info('• Run "udara_cli setup" to modify CLI settings.');
       Logger.info(
           '• Use the --slack-channel parameter during builds to override the default channel.');

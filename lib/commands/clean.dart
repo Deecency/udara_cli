@@ -1,4 +1,4 @@
-import 'core/core.dart';
+import '../core/core.dart';
 
 class CleanCommand extends UdaraCommand {
   @override
@@ -16,8 +16,8 @@ class CleanCommand extends UdaraCommand {
 
     await cleanup.performFullCleanup(fontsWereChanged: true);
 
-    print('🧹 Cleaning project...');
+    Logger.info('Cleaning project...');
     await runShell('flutter clean');
-    print('✅ Project cleaned successfully.');
+    Logger.success('Project cleaned successfully.');
   }
 }

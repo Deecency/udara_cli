@@ -1,3 +1,18 @@
+## 1.1.0
+
+* **NEW**:
+
+- `doctor` command: Validates project & client setup before building — checks required project files, pubspec dependencies (including `flutter_dotenv`), and per-client `.env`/`.env_test` presence, required keys, referenced asset paths, and font configuration. Run with `udara_cli doctor` or `udara_cli doctor --client <name>`.
+- `history` command: Every build (success or failure) is now recorded to a project-local `.udara_build_history.json`. View recent builds with `udara_cli history`, filter with `--client`/`--limit`, or clear with `--clear`.
+- `diff` command: Compare environment configuration between two clients with `udara_cli diff --client-a <NAME> --client-b <NAME>`. Add `--test` to compare `.env_test` files, or `--all` to show every key instead of only the ones that differ.
+- Added an `example/` folder demonstrating a full setup → build workflow.
+
+* **IMPROVEMENTS**:
+
+- Colored terminal output: Success, warning, and error messages are now color-coded (green/yellow/red) instead of emoji-only, with automatic fallback to plain text when the terminal doesn't support ANSI escapes (e.g. output piped to a file or CI log).
+- Added `topics` and refined metadata in `pubspec.yaml` for improved pub.dev discoverability.
+- Expanded dartdoc comments across the public API.
+
 ## 1.0.6
 
 

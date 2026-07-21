@@ -1,13 +1,27 @@
 import 'package:udara_cli/core/core.dart';
 
-class WhiteLabelCommand extends UdaraCommand {
-  WhiteLabelCommand() {
+class BuildCommand extends UdaraCommand {
+  BuildCommand() {
     argParser
       ..addOption(
         'client',
         abbr: 'c',
         mandatory: true,
         help: 'The name of the client to build for (e.g., udara).',
+      )
+      ..addOption(
+        'platform',
+        abbr: 'p',
+        defaultsTo: 'android',
+        allowed: ['android', 'ios'],
+        help: 'The target platform.',
+      )
+      ..addOption(
+        'type',
+        abbr: 't',
+        defaultsTo: 'aab',
+        allowed: ['aab', 'apk'],
+        help: 'The Android build type.',
       )
       ..addFlag(
         'test',
@@ -28,18 +42,24 @@ class WhiteLabelCommand extends UdaraCommand {
   }
 
   @override
-  final String name = 'whitelabel';
+  final String name = 'build';
 
   @override
   final String description =
-      '''Whitelabel the app with client-specific assets, app name, bundle ID, branding, custom icons and splash screens.
+      '''Build a whitelabeled version of your Flutter app for a specific client.
 
 🎯 USAGE:
-  udara_cli whitelabel --client <CLIENT_NAME> [OPTIONS]
+  udara_cli build --client <CLIENT_NAME> [OPTIONS]
 
 📋 EXAMPLES:
-  # Whitelabel a test version with Slack notifications
-  udara_cli whitelabel --client google --test --slack --slack-channel #dev-builds''';
+  # Build Android APK for 'apple' client (production)
+  udara_cli build --client apple
+
+  # Build test version with Slack notifications
+  udara_cli build --client google --test --slack --slack-channel #dev-builds
+
+  # Build iOS version
+  udara_cli build --client microsoft --platform ios''';
 
   // Services
   late ConfigService config;
@@ -50,6 +70,7 @@ class WhiteLabelCommand extends UdaraCommand {
   // State
   String? appNameForCleanup;
   DateTime? buildStartTime;
+  File? builtFile;
 
   @override
   Future<void> run() async {
@@ -61,11 +82,14 @@ class WhiteLabelCommand extends UdaraCommand {
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
     final client = argResults?['client'] as String;
+    final platform = argResults?['platform'] as String;
+    final type = argResults?['type'] as String;
     final isTest = argResults?['test'] as bool;
     final enableSlack = argResults?['slack'] as bool;
 
     String? version;
     String? errorMessage;
+    bool buildSuccess = false;
 
     if (enableSlack) {
       slackService =
@@ -82,8 +106,8 @@ class WhiteLabelCommand extends UdaraCommand {
         return await config.getPubspecVersion();
       });
 
-      await _notifyBuildStep('Whitelabel Started', client, '', 'started',
-          additionalInfo: 'Version: $version');
+      await _notifyBuildStep('Build Started', client, platform, 'started',
+          additionalInfo: 'Version: $version, Type: $type');
 
       final envFileName = isTest ? '.env_test' : '.env';
       final envFile = File('$projectDir/clients/$client/$envFileName');
@@ -102,6 +126,7 @@ class WhiteLabelCommand extends UdaraCommand {
       final bundleId = envVars['BUNDLE_ID'];
       final clientAssetsPath = envVars['ASSETS_PATH'];
       final appIconPath = envVars['APP_ICON_PATH'];
+      final teamId = envVars['DEVELOPMENT_TEAM'];
 
       _validateEnvVariables(client, envFileName, {
         'APP_NAME_PROD': appName,
@@ -117,7 +142,8 @@ class WhiteLabelCommand extends UdaraCommand {
       // PHASE 2: PROJECT CONFIGURATION
       // -----------------------------------------------------------------------
       Logger.phase('2: Project Configuration');
-      await _notifyBuildStep('Project Configuration', client, '', 'started');
+      await _notifyBuildStep(
+          'Project Configuration', client, platform, 'started');
 
       await _step('Creating backups', () async {
         await config.createBackup(File('$projectDir/pubspec.yaml'));
@@ -148,12 +174,12 @@ class WhiteLabelCommand extends UdaraCommand {
             clientAssetPath: client, requiredExtraAssets: ['.env']);
       });
 
-      Logger.success('Project dynamic assets configured successfully');
+      Logger.success('Project assets configured successfully');
 
       // -----------------------------------------------------------------------
       // PHASE 3: RUNNING EXTERNAL TOOLS
       // -----------------------------------------------------------------------
-      Logger.phase('3: Running Tools & Generating Assets');
+      Logger.phase('3: Running Build Commands');
 
       await _step('Resolving dependencies (pub get)',
           () => runShell('flutter pub get'));
@@ -174,38 +200,95 @@ class WhiteLabelCommand extends UdaraCommand {
       await _step('Generating Native Splash Screens',
           () => runShell('dart run splash_master create'));
 
-      await _step('Cleaning Android icon cache',
-          () => whiteLabel.cleanAndroidIconCache());
+      await _step('Applying OS-specific splash & icon patches', () async {
+        //await whiteLabel.patchIosSplash(appName!);
+        await whiteLabel.cleanAndroidIconCache();
+      });
 
-      Logger.success('Whitelabeling process completed successfully!');
+      // -----------------------------------------------------------------------
+      // PHASE 4: THE FINAL BUILD
+      // -----------------------------------------------------------------------
+      Logger.phase('4: Building the App');
+
+      if (platform == 'android') {
+        final buildType = (type == 'aab') ? 'aab' : 'apk --release';
+        await _step(
+            'Building Android ($buildType)',
+            () => runShell(
+                'flutter build $buildType --dart-define=CLIENT_ENV=".env"'));
+
+        builtFile = await _step('Renaming Android artifact', () async {
+          return await whiteLabel.renameOutput(
+              clientName: client, version: version ?? '1.0.0+1', type: type);
+        });
+      } else {
+        if (teamId != null) {
+          config.updateDevelopmentTeam(projectDir, teamId: teamId);
+        }
+        await _step(
+            'Building iOS IPA',
+            () =>
+                runShell('flutter build ipa --dart-define=CLIENT_ENV=".env"'));
+      }
+
+      buildSuccess = true;
+      Logger.success('Build process completed successfully!');
     } catch (e, s) {
+      buildSuccess = false;
+
       if (e is BuildException) {
         errorMessage = e.message;
         Logger.error(e.message,
             cause: e.fix, stackTrace: e.originalStackTrace ?? s);
       } else {
         errorMessage = e.toString();
-        Logger.error('An unexpected error occurred during whitelabeling.',
+        Logger.error('An unexpected error stopped the build.',
             cause: e, stackTrace: s);
       }
 
-      await _notifyBuildStep('Whitelabel Process', client, '', 'failed',
+      await _notifyBuildStep('Build Process', client, platform, 'failed',
           errorMessage: errorMessage);
       rethrow;
     } finally {
       // -----------------------------------------------------------------------
       // FINAL PHASE: CLEANUP (ALWAYS RUNS)
       // -----------------------------------------------------------------------
-      Logger.phase('🧹 Final Phase: Cleaning Up Project State');
+      Logger.phase('Cleaning Up Project State');
 
       try {
         await cleanup.performFullCleanup(
-          appNameForCleanup: appNameForCleanup,
-          fontsWereChanged: true,
+            appNameForCleanup: appNameForCleanup, fontsWereChanged: true);
+        Logger.info('Project returned to default state.');
+      } catch (e) {
+        Logger.warning('Cleanup encountered an issue: $e. Run udara_cli clean');
+      }
+
+      final buildDuration = buildStartTime != null
+          ? DateTime.now().difference(buildStartTime!)
+          : Duration.zero;
+
+      await config.appendBuildHistory(
+        client: client,
+        platform: platform,
+        type: type,
+        version: version,
+        success: buildSuccess,
+        duration: buildDuration,
+        errorMessage: errorMessage,
+        artifactPath: builtFile?.path,
+      );
+
+      if (slackService != null && version != null) {
+        await slackService!.sendBuildSummary(
+          client: client,
+          platform: platform,
+          type: type,
+          version: version,
+          success: buildSuccess,
+          buildTime: buildDuration,
+          errorMessage: errorMessage,
+          artifactFile: builtFile,
         );
-        Logger.info('Project restored to default state.');
-      } catch (cleanupError) {
-        Logger.warning('Cleanup encountered an issue: $cleanupError');
       }
     }
   }
@@ -214,7 +297,6 @@ class WhiteLabelCommand extends UdaraCommand {
   // HELPERS
   // ---------------------------------------------------------------------------
 
-  /// Wraps execution steps in consistent logging and exception catching
   Future<T> _step<T>(String description, Future<T> Function() action) async {
     Logger.info('Running: $description...');
     try {
@@ -231,7 +313,6 @@ class WhiteLabelCommand extends UdaraCommand {
     }
   }
 
-  /// Validates presence of critical environment variables
   void _validateEnvVariables(
       String client, String file, Map<String, String?> vars) {
     final missing = vars.entries

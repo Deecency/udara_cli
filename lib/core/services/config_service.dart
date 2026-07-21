@@ -292,6 +292,80 @@ class ConfigService {
   }
 
   // --------------------------------------------------------------------------
+  // BUILD HISTORY (PROJECT-SCOPED)
+  // --------------------------------------------------------------------------
+
+  static const String _historyFileName = '.udara_build_history.json';
+  static const int _maxHistoryEntries = 50;
+
+  String get _historyFilePath => p.join(projectDir, _historyFileName);
+
+  /// Appends a build record to the project-local history file, keeping only
+  /// the most recent [_maxHistoryEntries]. Newest entries are stored first.
+  Future<void> appendBuildHistory({
+    required String client,
+    required String platform,
+    required String type,
+    required String? version,
+    required bool success,
+    required Duration duration,
+    String? errorMessage,
+    String? artifactPath,
+  }) async {
+    final entry = {
+      'timestamp': DateTime.now().toIso8601String(),
+      'client': client,
+      'platform': platform,
+      'type': type,
+      'version': version,
+      'success': success,
+      'durationSeconds': duration.inSeconds,
+      if (errorMessage != null) 'error': errorMessage,
+      if (artifactPath != null) 'artifact': artifactPath,
+    };
+
+    try {
+      final history = await loadBuildHistory();
+      history.insert(0, entry);
+
+      if (history.length > _maxHistoryEntries) {
+        history.removeRange(_maxHistoryEntries, history.length);
+      }
+
+      await File(_historyFilePath).writeAsString(
+        const JsonEncoder.withIndent('  ').convert(history),
+      );
+    } catch (e) {
+      // Never let history recording break a build.
+      Logger.warning('Failed to record build history: $e');
+    }
+  }
+
+  /// Loads recorded build history, newest first. Returns an empty list if
+  /// no history file exists yet.
+  Future<List<Map<String, dynamic>>> loadBuildHistory() async {
+    final file = File(_historyFilePath);
+    if (!file.existsSync()) return [];
+
+    try {
+      final content = await file.readAsString();
+      final decoded = jsonDecode(content) as List<dynamic>;
+      return decoded.cast<Map<String, dynamic>>();
+    } catch (e) {
+      Logger.warning('Failed to read build history: $e');
+      return [];
+    }
+  }
+
+  /// Deletes the build history file. Returns true if a file was removed.
+  Future<bool> clearBuildHistory() async {
+    final file = File(_historyFilePath);
+    if (!file.existsSync()) return false;
+    await file.delete();
+    return true;
+  }
+
+  // --------------------------------------------------------------------------
   // CLI GLOBAL CONFIGURATION (USER HOME DIR)
   // --------------------------------------------------------------------------
 
