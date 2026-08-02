@@ -1,3 +1,12 @@
+## 1.1.1
+
+* **FIXES**:
+
+- Hardened backup/restore behavior by storing backups in a project-local `.udara/backups` directory instead of side-by-side `.bak` files, making restore operations more reliable and less likely to clobber unrelated files.
+- Protected managed branding folders from accidental deletion by refusing to remove non-managed asset directories and cleaning up only inactive client branding folders marked by `udara_cli`.
+- Improved asset sync validation so builds fail early when no branding assets are copied for the selected client, with clearer remediation guidance.
+- Corrected the client `.env` asset path wiring during white-label setup to ensure the proper env file is tracked for each client.
+
 ## 1.1.0
 
 * **NEW**:

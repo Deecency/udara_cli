@@ -16,9 +16,15 @@ class WhiteLabelService {
   // ASSET MANAGEMENT
   // --------------------------------------------------------------------------
 
-  /// Moves client-specific branding images into the active assets folder.
-  Future<void> syncBrandingAssets(String clientName, String sourcePath) async {
+  /// Copies client-specific branding images into the active assets folder.
+  Future<void> syncBrandingAssets(
+    String clientName,
+    String sourcePath,
+  ) async {
     await _ensureUdaraIgnoreFile();
+
+    await _cleanupOtherClientBrandingFolders(clientName);
+
     final sourceDir = Directory(p.join(projectDir, sourcePath));
 
     if (!sourceDir.existsSync()) {
@@ -34,15 +40,45 @@ class WhiteLabelService {
 
     try {
       if (targetDir.existsSync()) {
-        await targetDir.delete(recursive: true);
+        final markerFile = File(p.join(targetDir.path, _managedMarkerFile));
+
+        if (await markerFile.exists()) {
+          await targetDir.delete(recursive: true);
+        } else {
+          throw BuildException(
+            'Refusing to delete unmanaged branding folder at "${targetDir.path}".',
+            fix:
+                'Remove the folder manually or add the $_managedMarkerFile marker if it is managed by udara_cli.',
+          );
+        }
       }
+
       await targetDir.create(recursive: true);
 
+      await File(p.join(targetDir.path, _managedMarkerFile))
+          .writeAsString('managed=true');
+
       Logger.info(
-          'Syncing assets: ${p.basename(sourcePath)} ➔ ${targetDir.path}');
+        'Syncing assets: ${p.basename(sourcePath)} ➔ ${targetDir.path}',
+      );
+
       await _copyDirectory(sourceDir, targetDir);
+
+      final copiedFiles = targetDir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => p.basename(f.path) != _managedMarkerFile)
+          .toList();
+
+      if (copiedFiles.isEmpty) {
+        throw BuildException(
+          'No branding assets were copied for client "$clientName".',
+          fix: 'Check ASSETS_PATH and ensure it contains image assets.',
+        );
+      }
     } catch (e, s) {
       if (e is BuildException) rethrow;
+
       throw BuildException(
         'Failed to sync branding assets for client "$clientName"',
         fix:
@@ -198,6 +234,43 @@ class WhiteLabelService {
   // PRIVATE HELPERS
   // --------------------------------------------------------------------------
 
+  static const _managedMarkerFile = '.udara_managed';
+  Future<void> _cleanupOtherClientBrandingFolders(
+    String activeClient,
+  ) async {
+    final clientsDir = Directory(p.join(projectDir, 'clients'));
+    final brandingRoot = Directory(p.join(projectDir, 'assets', 'branding'));
+
+    if (!await clientsDir.exists() || !await brandingRoot.exists()) {
+      return;
+    }
+
+    final clientNames = <String>{};
+
+    await for (final entity in clientsDir.list()) {
+      if (entity is Directory) {
+        clientNames.add(p.basename(entity.path));
+      }
+    }
+
+    for (final client in clientNames) {
+      if (client == activeClient) continue;
+
+      final clientBrandingDir = Directory(p.join(brandingRoot.path, client));
+
+      final markerFile =
+          File(p.join(clientBrandingDir.path, _managedMarkerFile));
+
+      if (await clientBrandingDir.exists() && await markerFile.exists()) {
+        Logger.info(
+          'Removing inactive managed branding folder: ${clientBrandingDir.path}',
+        );
+
+        await clientBrandingDir.delete(recursive: true);
+      }
+    }
+  }
+
   Future<void> _ensureUdaraIgnoreFile() async {
     final file = File(p.join(projectDir, '.udaraignore'));
 
@@ -217,6 +290,10 @@ service_account.json
 *.p12
 *.jks
 *.keystore
+
+# Environment files
+.env
+.env.*
 ''';
 
     try {
@@ -360,39 +437,34 @@ class CleanupService {
       if (restorePbxproj) p.join('ios', 'Runner.xcodeproj', 'project.pbxproj'),
     ];
 
-    for (var fileName in filesToRestore) {
+    for (final fileName in filesToRestore) {
       final file = File(p.join(projectDir, fileName));
-      final backupFile = File('${file.path}.bak');
 
-      if (backupFile.existsSync()) {
-        Logger.info('Restoring $fileName...');
-        try {
-          await config.restoreBackup(file);
-        } catch (e) {
-          Logger.warning('Failed to restore backup for $fileName: $e');
-        }
+      Logger.info('Restoring $fileName...');
+
+      try {
+        await config.restoreBackup(file);
+      } catch (e) {
+        Logger.warning('Failed to restore backup for $fileName: $e');
       }
     }
   }
 
   Future<void> _removeTempFiles() async {
-    final rootEnv = File(p.join(projectDir, '.env'));
-    if (rootEnv.existsSync()) {
-      Logger.info('Removing temporary .env');
-      try {
-        await rootEnv.delete();
-      } catch (e) {
-        Logger.warning('Failed to delete temporary .env file: $e');
-      }
-    }
+    final brandingRoot = Directory(p.join(projectDir, 'assets', 'branding'));
 
-    final brandingDir = Directory(p.join(projectDir, 'assets', 'branding'));
-    if (brandingDir.existsSync()) {
-      Logger.info('Removing branding assets');
-      try {
-        await brandingDir.delete(recursive: true);
-      } catch (e) {
-        Logger.warning('Failed to delete branding assets directory: $e');
+    if (await brandingRoot.exists()) {
+      await for (final entity in brandingRoot.list()) {
+        if (entity is! Directory) continue;
+
+        if (p.basename(entity.path) == 'default') continue;
+
+        final marker = File(p.join(entity.path, '.udara_managed'));
+
+        if (await marker.exists()) {
+          Logger.info('Removing temporary branding folder: ${entity.path}');
+          await entity.delete(recursive: true);
+        }
       }
     }
   }
@@ -444,6 +516,14 @@ class _BrandingConfig {
 const _defaultExcludedPatterns = [
   'service_account.json',
   '.udara_build_history.json',
+  '.DS_Store',
+  '**/.DS_Store',
+  '.env',
+  '.env_test',
+  '.env.*',
+  '**/.env',
+  '**/.env_test',
+  '**/.env.*',
   '*.pem',
   '*.key',
   '*.p12',

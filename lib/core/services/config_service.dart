@@ -194,6 +194,9 @@ class ConfigService {
   // BACKUP & RESTORE
   // --------------------------------------------------------------------------
 
+  Directory get _backupRoot =>
+      Directory(p.join(projectDir, '.udara', 'backups'));
+
   /// Creates a backup of a file (.bak extension). Returns the backup file.
   Future<File> createBackup(File file) async {
     if (!file.existsSync()) {
@@ -205,11 +208,16 @@ class ConfigService {
     }
 
     try {
-      return await file.copy('${file.path}.bak');
+      final relativePath = p.relative(file.path, from: projectDir);
+      final backupFile = File(p.join(_backupRoot.path, relativePath));
+
+      await backupFile.parent.create(recursive: true);
+
+      return await file.copy(backupFile.path);
     } catch (e, s) {
       throw BuildException(
         'Failed to create backup file for "${file.path}"',
-        fix: 'Check directory permissions for "${file.parent.path}".',
+        fix: 'Check directory permissions for backup directory.',
         originalStackTrace: s,
       );
     }
@@ -217,14 +225,30 @@ class ConfigService {
 
   /// Restores a file from its .bak version and deletes the backup.
   Future<void> restoreBackup(File originalFile) async {
-    final backup = File('${originalFile.path}.bak');
-    if (backup.existsSync()) {
-      try {
-        await backup.rename(originalFile.path);
-      } catch (e) {
-        Logger.warning(
-            'Could not restore backup for "${originalFile.path}": $e');
-      }
+    final relativePath = p.relative(originalFile.path, from: projectDir);
+
+    final backup = File(p.join(_backupRoot.path, relativePath));
+
+    if (!await backup.exists()) {
+      return;
+    }
+
+    try {
+      await backup.copy(originalFile.path);
+      await backup.delete();
+    } catch (e, s) {
+      throw BuildException(
+        'Failed to restore backup for "${originalFile.path}"',
+        fix:
+            'Check file permissions and ensure the backup directory is accessible.',
+        originalStackTrace: s,
+      );
+    }
+  }
+
+  Future<void> clearBackups() async {
+    if (await _backupRoot.exists()) {
+      await _backupRoot.delete(recursive: true);
     }
   }
 
