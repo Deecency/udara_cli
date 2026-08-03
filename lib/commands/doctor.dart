@@ -253,7 +253,11 @@ class DoctorCommand extends UdaraCommand {
       );
     }
 
-/*     for (final key in ['APP_ICON_PATH', 'APP_LOGO_PATH']) {
+    /// This is not accurate, as the assets are stored in the clients folder
+    /// so looking for them in their predefined state for asset
+    /// configureation is wrong.
+
+    /*for (final key in ['APP_ICON_PATH', 'APP_LOGO_PATH']) {
       final path = envVars[key];
       if (path == null || path.trim().isEmpty) continue;
 

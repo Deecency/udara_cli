@@ -1,3 +1,11 @@
+## 1.1.2
+
+* **FIXES**:
+
+- Cleaned up the `doctor` command diagnostics and kept the asset-path validation comments aligned with the actual client asset layout.
+- Ensured local project metadata is excluded from version control by ignoring `.udara/` workspace artifacts.
+- Prepared the package for a clean publish by keeping the repo state release-ready.
+
 ## 1.1.1
 
 * **FIXES**:
