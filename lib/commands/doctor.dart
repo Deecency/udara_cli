@@ -253,7 +253,7 @@ class DoctorCommand extends UdaraCommand {
       );
     }
 
-    for (final key in ['APP_ICON_PATH', 'APP_LOGO_PATH']) {
+/*     for (final key in ['APP_ICON_PATH', 'APP_LOGO_PATH']) {
       final path = envVars[key];
       if (path == null || path.trim().isEmpty) continue;
 
@@ -266,7 +266,7 @@ class DoctorCommand extends UdaraCommand {
           fix: 'Verify the path is correct and the file has been added.',
         );
       }
-    }
+    } */
 
     final teamId = envVars['DEVELOPMENT_TEAM'];
     if (teamId != null && teamId.trim().isNotEmpty) {
