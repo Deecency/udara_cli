@@ -7,20 +7,14 @@ class WhiteLabelService {
   final String projectDir;
   final ConfigService config;
 
-  WhiteLabelService({
-    required this.projectDir,
-    required this.config,
-  });
+  WhiteLabelService({required this.projectDir, required this.config});
 
   // --------------------------------------------------------------------------
   // ASSET MANAGEMENT
   // --------------------------------------------------------------------------
 
   /// Copies client-specific branding images into the active assets folder.
-  Future<void> syncBrandingAssets(
-    String clientName,
-    String sourcePath,
-  ) async {
+  Future<void> syncBrandingAssets(String clientName, String sourcePath) async {
     await _ensureUdaraIgnoreFile();
 
     await _cleanupOtherClientBrandingFolders(clientName);
@@ -35,8 +29,24 @@ class WhiteLabelService {
       );
     }
 
-    final targetDir =
-        Directory(p.join(projectDir, 'assets', 'branding', clientName));
+    final clientRoot = Directory(p.join(projectDir, 'clients', clientName));
+    final relativeSourcePath = p.relative(
+      sourceDir.absolute.path,
+      from: clientRoot.absolute.path,
+    );
+    if (relativeSourcePath == '..' ||
+        relativeSourcePath.startsWith('../') ||
+        p.isAbsolute(relativeSourcePath)) {
+      throw BuildException(
+        'Client assets path must be inside "${clientRoot.path}".',
+        fix:
+            'Set ASSETS_PATH in the client environment to a directory under clients/$clientName.',
+      );
+    }
+
+    final targetDir = Directory(
+      p.join(projectDir, 'assets', 'branding', clientName),
+    );
 
     try {
       if (targetDir.existsSync()) {
@@ -55,8 +65,9 @@ class WhiteLabelService {
 
       await targetDir.create(recursive: true);
 
-      await File(p.join(targetDir.path, _managedMarkerFile))
-          .writeAsString('managed=true');
+      await File(
+        p.join(targetDir.path, _managedMarkerFile),
+      ).writeAsString('managed=true');
 
       Logger.info(
         'Syncing assets: ${p.basename(sourcePath)} ➔ ${targetDir.path}',
@@ -94,8 +105,9 @@ class WhiteLabelService {
 
   /// Swaps system fonts for client fonts and updates pubspec configuration.
   Future<void> applyClientFonts(String clientAssetsPath) async {
-    final clientFontsDir =
-        Directory(p.join(projectDir, clientAssetsPath, 'fonts'));
+    final clientFontsDir = Directory(
+      p.join(projectDir, clientAssetsPath, 'fonts'),
+    );
     final targetFontsDir = Directory(p.join(projectDir, 'assets', 'fonts'));
 
     if (!clientFontsDir.existsSync()) {
@@ -176,8 +188,15 @@ class WhiteLabelService {
   /// Fixes a specific Android adaptive icon bug.
   Future<void> cleanAndroidIconCache() async {
     final buggyDir = Directory(
-      p.join(projectDir, 'android', 'app', 'src', 'main', 'res',
-          'mipmap-anydpi-v26'),
+      p.join(
+        projectDir,
+        'android',
+        'app',
+        'src',
+        'main',
+        'res',
+        'mipmap-anydpi-v26',
+      ),
     );
 
     if (buggyDir.existsSync()) {
@@ -235,9 +254,7 @@ class WhiteLabelService {
   // --------------------------------------------------------------------------
 
   static const _managedMarkerFile = '.udara_managed';
-  Future<void> _cleanupOtherClientBrandingFolders(
-    String activeClient,
-  ) async {
+  Future<void> _cleanupOtherClientBrandingFolders(String activeClient) async {
     final clientsDir = Directory(p.join(projectDir, 'clients'));
     final brandingRoot = Directory(p.join(projectDir, 'assets', 'branding'));
 
@@ -258,8 +275,9 @@ class WhiteLabelService {
 
       final clientBrandingDir = Directory(p.join(brandingRoot.path, client));
 
-      final markerFile =
-          File(p.join(clientBrandingDir.path, _managedMarkerFile));
+      final markerFile = File(
+        p.join(clientBrandingDir.path, _managedMarkerFile),
+      );
 
       if (await clientBrandingDir.exists() && await markerFile.exists()) {
         Logger.info(
@@ -304,25 +322,14 @@ service_account.json
     }
   }
 
-  Future<void> _copyDirectory(
-    Directory source,
-    Directory destination,
-  ) async {
+  Future<void> _copyDirectory(Directory source, Directory destination) async {
     final brandingConfig = await _loadBrandingConfig();
 
-    final patterns = [
-      ..._defaultExcludedPatterns,
-      ...brandingConfig.excludes,
-    ];
+    final patterns = [..._defaultExcludedPatterns, ...brandingConfig.excludes];
 
     final globs = patterns.map(Glob.new).toList();
 
-    await _copyDirectoryInternal(
-      source,
-      destination,
-      source,
-      globs,
-    );
+    await _copyDirectoryInternal(source, destination, source, globs);
   }
 
   Future<void> _copyDirectoryInternal(
@@ -332,14 +339,9 @@ service_account.json
     List<Glob> globs,
   ) async {
     await for (final entity in source.list(recursive: false)) {
-      final relativePath = p.relative(
-        entity.path,
-        from: root.path,
-      );
+      final relativePath = p.relative(entity.path, from: root.path);
 
-      final shouldSkip = globs.any(
-        (glob) => glob.matches(relativePath),
-      );
+      final shouldSkip = globs.any((glob) => glob.matches(relativePath));
 
       if (shouldSkip) {
         Logger.info('Skipping ignored asset: $relativePath');
@@ -348,35 +350,20 @@ service_account.json
 
       if (entity is Directory) {
         final newDirectory = Directory(
-          p.join(
-            destination.path,
-            p.basename(entity.path),
-          ),
+          p.join(destination.path, p.basename(entity.path)),
         );
 
         await newDirectory.create(recursive: true);
 
-        await _copyDirectoryInternal(
-          entity,
-          newDirectory,
-          root,
-          globs,
-        );
+        await _copyDirectoryInternal(entity, newDirectory, root, globs);
       } else if (entity is File) {
-        await entity.copy(
-          p.join(
-            destination.path,
-            p.basename(entity.path),
-          ),
-        );
+        await entity.copy(p.join(destination.path, p.basename(entity.path)));
       }
     }
   }
 
   Future<_BrandingConfig> _loadBrandingConfig() async {
-    final ignoreFile = File(
-      p.join(projectDir, '.udaraignore'),
-    );
+    final ignoreFile = File(p.join(projectDir, '.udaraignore'));
 
     if (!ignoreFile.existsSync()) {
       return const _BrandingConfig();
@@ -403,10 +390,7 @@ class CleanupService {
   final String projectDir;
   final ConfigService config;
 
-  CleanupService({
-    required this.projectDir,
-    required this.config,
-  });
+  CleanupService({required this.projectDir, required this.config});
 
   /// Reverts all temporary changes made during the build process.
   Future<void> performFullCleanup({
@@ -416,14 +400,19 @@ class CleanupService {
   }) async {
     Logger.info('Starting project cleanup...');
 
-    await _restoreBackedUpFiles(!isWhiteLabel);
-    await _removeTempFiles();
+    try {
+      await _restoreBackedUpFiles(!isWhiteLabel);
+      await _removeTempFiles();
 
-    if (fontsWereChanged) {
-      await _restoreDefaultFonts();
+      if (fontsWereChanged) {
+        await _restoreDefaultFonts();
+      }
+
+      Logger.success('Project restored to original state.');
+    } finally {
+      // Backups are disposable build state and must not survive cleanup.
+      await config.clearBackups();
     }
-
-    Logger.success('Project restored to original state.');
   }
 
   // --------------------------------------------------------------------------
@@ -508,12 +497,28 @@ class CleanupService {
 class _BrandingConfig {
   final List<String> excludes;
 
-  const _BrandingConfig({
-    this.excludes = const [],
-  });
+  const _BrandingConfig({this.excludes = const []});
 }
 
 const _defaultExcludedPatterns = [
+  '.udara',
+  '**/.udara',
+  '.git',
+  '**/.git',
+  '.dart_tool',
+  '**/.dart_tool',
+  'build',
+  '**/build',
+  'android',
+  'ios',
+  'lib',
+  'test',
+  'web',
+  'macos',
+  'windows',
+  'linux',
+  'pubspec.yaml',
+  'pubspec.lock',
   'service_account.json',
   '.udara_build_history.json',
   '.DS_Store',
