@@ -119,7 +119,7 @@ class WhiteLabelCommand extends UdaraCommand {
       Logger.phase('2: Project Configuration');
       await _notifyBuildStep('Project Configuration', client, '', 'started');
 
-      /* await _step('Creating backups', () async {
+      await _step('Creating backups', () async {
         await config.createBackup(File('$projectDir/pubspec.yaml'));
         await config
             .createBackup(File('$projectDir/flutter_launcher_icons.yaml'));
@@ -129,7 +129,7 @@ class WhiteLabelCommand extends UdaraCommand {
         if (pbxprojFile.existsSync()) {
           await config.createBackup(pbxprojFile);
         }
-      }); */
+      });
 
       await _step('Updating asset and launcher configs', () async {
         await config.updateYamlValue(
@@ -197,9 +197,9 @@ class WhiteLabelCommand extends UdaraCommand {
       // -----------------------------------------------------------------------
       // FINAL PHASE: CLEANUP (ALWAYS RUNS)
       // -----------------------------------------------------------------------
-      // Logger.phase('🧹 Final Phase: Cleaning Up Project State');
+      Logger.phase('Cleaning Up Project State');
 
-      /* try {
+      try {
         await cleanup.performFullCleanup(
           appNameForCleanup: appNameForCleanup,
           fontsWereChanged: true,
@@ -207,7 +207,7 @@ class WhiteLabelCommand extends UdaraCommand {
         Logger.info('Project restored to default state.');
       } catch (cleanupError) {
         Logger.warning('Cleanup encountered an issue: $cleanupError');
-      } */
+      }
     }
   }
 
