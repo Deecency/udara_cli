@@ -542,9 +542,8 @@ run`) or build any client from a click:
 - **VS Code** — `extensions/vscode/` ([README](extensions/vscode/README.md)).
   `npm install && npm run package` produces a `.vsix`; install it with
   `code --install-extension udara-whitelabel-*.vsix`.
-- **Android Studio / IntelliJ IDEA** — `extensions/jetbrains/`
-  ([README](extensions/jetbrains/README.md)). `./gradlew buildPlugin` produces
-  a zip you can install from disk under **Settings | Plugins**.
+- **Android Studio / IntelliJ IDEA** — [Udara Whitelabel on the JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34541-udara-whitelabel);
+  source in `extensions/jetbrains/` ([README](extensions/jetbrains/README.md)).
 
 They call `udara_cli list-clients --json` and `udara_cli history --json`, which
 are also handy for your own scripts.

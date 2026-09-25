@@ -5,6 +5,11 @@ their env files, and runs `udara_cli` for you. It is a UI over
 [`udara_cli`](https://pub.dev/packages/udara_cli), so results match the
 terminal exactly.
 
+## Install
+
+From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara-whitelabel
+(or **Settings | Plugins**, search for "Udara Whitelabel").
+
 ## Requirements
 
 - Android Studio Ladybug (2024.2) or newer, or IntelliJ IDEA 2024.2+.
@@ -41,3 +46,10 @@ cd extensions/jetbrains
 
 Install the zip in Android Studio via **Settings | Plugins | ⚙ | Install
 Plugin from Disk…**.
+
+To publish an update to the Marketplace (plugin id 34541), bump `version` in
+`build.gradle.kts`, add change notes in `plugin.xml`, then:
+
+```bash
+JETBRAINS_MARKETPLACE_TOKEN=<token from plugins.jetbrains.com/author/me/tokens> ./gradlew publishPlugin
+```
