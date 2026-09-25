@@ -26,10 +26,10 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
   Build Client…, Whitelabel Project as Client…, Doctor, Clean, Diff Two
   Clients…, Set Up Clients…. The same actions live under **Tools | Udara
   Whitelabel**, where they prompt for a client.
-- **Run Client** runs `udara_cli whitelabel --client <name>` in the Run tool
-  window, then opens a Terminal tab running
-  `flutter run --dart-define=CLIENT_ENV=.env` (with a device picker from
-  `flutter devices`) so hot reload works.
+- **Run Client** runs `udara_cli whitelabel --client <name> --keep` in the Run
+  tool window, then starts `flutter run --dart-define=CLIENT_ENV=.env` there
+  too (with a device picker from `flutter devices`). Type `r`, `R` or `q` and
+  press Enter in that console for hot reload, hot restart or quit.
 - **Build Client…** opens a dialog for platform, Android build type, test env
   and Slack, runs `udara_cli build`, and notifies you with a *Reveal Artifact*
   link.

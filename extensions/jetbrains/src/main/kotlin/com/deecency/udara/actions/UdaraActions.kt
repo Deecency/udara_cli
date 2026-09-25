@@ -76,10 +76,10 @@ object RunFlow {
                 val runArgs = mutableListOf("run", "--dart-define=CLIENT_ENV=.env")
                 if (device != null) runArgs += listOf("-d", device)
                 runArgs += ParametersListUtil.parse(settings.flutterRunArgs)
-                UdaraRunner.runInTerminal(
+                UdaraRunner.runFlutterInteractive(
                     project, root,
                     "flutter run · ${client.name}${if (isTest) " (test)" else ""}",
-                    UdaraRunner.commandLine(settings.flutterPath, runArgs),
+                    runArgs,
                 )
             }
             if (!settings.askForDevice) {

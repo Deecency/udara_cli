@@ -9,7 +9,7 @@
     from a tool window in Android Studio or IntelliJ IDEA.
     <ul>
       <li>Clients tree with app name, bundle id, .env / .env_test keys (secrets masked)</li>
-      <li>Run a client: whitelabel the project, then <code>flutter run</code> in the Terminal</li>
+      <li>Run a client: whitelabel the project, then <code>flutter run</code> with hot reload in the Run tool window</li>
       <li>Build a client (platform, type, environment) and reveal the artifact</li>
       <li>Doctor, Clean, Diff, Set up clients, and a Build History table</li>
     </ul>
@@ -17,6 +17,13 @@
     ]]></description>
 
     <change-notes><![CDATA[
+    <h3>0.1.1</h3>
+    <ul>
+      <li>Run Client now starts <code>flutter run</code> in the Run tool window (with a pseudo-terminal, so hot reload and
+          the r / R / q keys work) instead of the Terminal plugin. This removes all deprecated and
+          scheduled-for-removal API usages reported for IntelliJ 2026.1 and 2026.2.</li>
+      <li>No longer depends on the Terminal plugin.</li>
+    </ul>
     <h3>0.1.0</h3>
     <ul>
       <li>Initial release: Clients tree with env files, Run / Build / Whitelabel / Doctor / Clean / Diff / Set Up Clients actions, Build History tab.</li>
@@ -25,7 +32,6 @@
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
-    <depends>org.jetbrains.plugins.terminal</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="Udara"

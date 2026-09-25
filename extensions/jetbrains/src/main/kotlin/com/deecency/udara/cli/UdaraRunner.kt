@@ -4,13 +4,14 @@ import com.deecency.udara.settings.UdaraSettings
 import com.deecency.udara.ui.UdaraNotifications
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.RunContentExecutor
+import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.execution.configurations.PtyCommandLine
 import com.intellij.execution.process.KillableColoredProcessHandler
 import com.intellij.execution.process.ProcessTerminatedListener
 import com.intellij.openapi.project.Project
-import org.jetbrains.plugins.terminal.TerminalToolWindowManager
 import java.io.File
 
-/** Runs the CLI in the Run tool window and `flutter run` in the Terminal. */
+/** Runs `udara_cli` and `flutter run` with their output in the Run tool window. */
 object UdaraRunner {
 
     /**
@@ -25,35 +26,41 @@ object UdaraRunner {
         onFinished: ((Int) -> Unit)? = null,
     ) {
         val cli = UdaraSettings.getInstance().state.cliPath
+        run(project, UdaraCli.commandLine(root, cli, args), title, cli, onFinished)
+    }
+
+    /**
+     * Runs `flutter <args>` interactively. A pseudo-terminal makes Flutter
+     * treat the console as a TTY, so typing r, R or q and pressing Enter in
+     * the Run tool window triggers hot reload, hot restart or quit.
+     */
+    fun runFlutterInteractive(project: Project, root: File, title: String, args: List<String>) {
+        val flutter = UdaraSettings.getInstance().state.flutterPath
+        val commandLine = PtyCommandLine(UdaraCli.commandLine(root, flutter, args))
+            .withInitialColumns(160)
+            .withConsoleMode(true)
+        run(project, commandLine, title, flutter, null)
+    }
+
+    private fun run(
+        project: Project,
+        commandLine: GeneralCommandLine,
+        title: String,
+        executable: String,
+        onFinished: ((Int) -> Unit)?,
+    ) {
         val handler = try {
-            KillableColoredProcessHandler(UdaraCli.commandLine(root, cli, args))
+            KillableColoredProcessHandler(commandLine)
         } catch (e: ExecutionException) {
-            UdaraNotifications.cliMissing(project, e.message ?: cli)
+            UdaraNotifications.cliMissing(project, e.message ?: executable)
             return
         }
         ProcessTerminatedListener.attach(handler)
         RunContentExecutor(project, handler)
             .withTitle(title)
             .withActivateToolWindow(true)
+            .withStop({ handler.destroyProcess() }, { !handler.isProcessTerminated })
             .withAfterCompletion { onFinished?.invoke(handler.exitCode ?: -1) }
             .run()
-    }
-
-    /** Opens a new Terminal tab in [root] and executes [command] in it. */
-    fun runInTerminal(project: Project, root: File, tabName: String, command: String) {
-        val widget = TerminalToolWindowManager.getInstance(project)
-            .createShellWidget(root.absolutePath, tabName, true, true)
-        widget.sendCommandToExecute(command)
-    }
-
-    fun commandLine(executable: String, args: List<String>): String =
-        (listOf(executable) + args).joinToString(" ") { quote(it) }
-
-    private val SAFE = Regex("^[A-Za-z0-9_./=:@+-]+$")
-
-    private fun quote(arg: String): String = when {
-        SAFE.matches(arg) -> arg
-        System.getProperty("os.name").lowercase().contains("win") -> "\"" + arg.replace("\"", "\\\"") + "\""
-        else -> "'" + arg.replace("'", "'\\''") + "'"
     }
 }

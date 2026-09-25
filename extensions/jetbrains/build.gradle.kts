@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.deecency.udara"
-version = "0.1.0"
+version = "0.1.1"
 
 repositories {
     mavenCentral()
@@ -19,7 +19,6 @@ dependencies {
         // Android Studio Ladybug and newer are built on the 2024.2 platform;
         // building against IntelliJ Community keeps the download small.
         intellijIdeaCommunity("2024.2.5")
-        bundledPlugin("org.jetbrains.plugins.terminal")
     }
 }
 
