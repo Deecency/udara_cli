@@ -29,6 +29,14 @@
 - `list-clients --json` and `history --json` emit machine-readable output (human log lines move to stderr) for editor integrations and scripts.
 - New IDE extensions under `extensions/`: a VS Code extension and an Android Studio / IntelliJ plugin that list clients and env files and trigger run, build, whitelabel, doctor, clean and diff through the CLI.
 
+## 1.1.3
+
+* **FIXES** (published to pub.dev on 2026-08-06; notes copied from that release):
+
+- Improved `clean` command logging by reporting the project cleanup phase before cleanup completes.
+- Added temporary `.env` removal during cleanup so stale environment files do not persist between builds.
+- Refined cleanup behavior to ensure project state is restored cleanly after asset refreshes.
+
 ## 1.1.2
 
 * **FIXES**:
