@@ -1,6 +1,7 @@
 export 'exceptions.dart';
 export 'placeholder_png.dart';
 export 'services/config_service.dart';
+export 'services/hooks_service.dart';
 export 'services/slack_service.dart';
 export 'services/white_label_service.dart';
 export 'udara_command.dart';

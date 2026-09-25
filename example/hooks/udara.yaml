@@ -1,0 +1,12 @@
+# Copy to your Flutter project root as udara.yaml.
+hooks:
+  # Runs after the client's bundle id, app name, icons and splash are applied,
+  # before `flutter build`. Also runs for `udara_cli whitelabel`, so the
+  # editor extensions' "Run Client" gets the right config too.
+  after_branding:
+    - ./scripts/firebase_configure.sh
+    - ./scripts/onesignal_configure.sh
+
+  # Runs after a successful `udara_cli build`, with UDARA_ARTIFACT set.
+  # after_build:
+  #   - ./scripts/upload_to_store.sh

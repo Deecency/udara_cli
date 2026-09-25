@@ -90,6 +90,7 @@ the build fails. Every run is recorded in .udara_build_history.json.''';
     String? version;
     String? errorMessage;
     File? builtFile;
+    late HookContext hookContext;
     var buildSuccess = false;
 
     if (enableSlack) {
@@ -104,6 +105,7 @@ the build fails. Every run is recorded in .udara_build_history.json.''';
       Logger.phase('1: Validation & Setup');
 
       checkProjectPrerequisites();
+      await recoverInterruptedRun(cleanup);
       final envFile = await resolveClientEnvFile(client, isTest: isTest);
       final envFileName = p.basename(envFile.path);
 
@@ -127,6 +129,22 @@ the build fails. Every run is recorded in .udara_build_history.json.''';
       final splashImagePath =
           _firstNonEmpty([envVars['APP_LOGO_PATH'], envVars['APP_ICON_PATH']])!;
       final teamId = envVars['DEVELOPMENT_TEAM'];
+
+      // Validate udara.yaml up front so a typo fails before the long work.
+      final hooks = HooksService(projectDir);
+      hooks.load();
+      hookContext = HookContext(
+        command: 'build',
+        projectDir: projectDir,
+        client: client,
+        envFile: envFile,
+        isTest: isTest,
+        platform: platform,
+        buildType: type,
+        version: version,
+        bundleId: bundleId,
+        appName: appName,
+      );
 
       Logger.success(
           'Validated "$client" ($envFileName): $appName · $bundleId · v$version');
@@ -204,6 +222,8 @@ the build fails. Every run is recorded in .udara_build_history.json.''';
       await runStep('Applying OS-specific splash & icon patches',
           () => whiteLabel.cleanAndroidIconCache());
 
+      await hooks.run(HookPoint.afterBranding, hookContext);
+
       // -----------------------------------------------------------------------
       // PHASE 4: THE FINAL BUILD
       // -----------------------------------------------------------------------
@@ -222,6 +242,9 @@ the build fails. Every run is recorded in .udara_build_history.json.''';
           'Renaming ${type.toUpperCase()} artifact',
           () => whiteLabel.renameOutput(
               clientName: client, version: version!, type: type));
+
+      await hooks.run(
+          HookPoint.afterBuild, hookContext.withArtifact(builtFile!.path));
 
       buildSuccess = true;
       Logger.success('Build process completed successfully!');

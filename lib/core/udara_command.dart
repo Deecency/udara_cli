@@ -133,6 +133,17 @@ abstract class UdaraCommand extends Command<void> {
     }
   }
 
+  /// Restores the project if a previous build or whitelabel was interrupted
+  /// (its `.udara` backups still exist). Without this, the stale backups
+  /// would be restored by this run's cleanup, silently reverting part of the
+  /// new client's branding.
+  Future<void> recoverInterruptedRun(CleanupService cleanup) async {
+    if (!Directory(p.join(projectDir, '.udara')).existsSync()) return;
+    Logger.warning('Found leftover state from an interrupted run. '
+        'Restoring the project before continuing...');
+    await cleanup.performFullCleanup();
+  }
+
   /// Builds a [SlackService] from the stored bot token, or returns null
   /// (with a warning) when Slack has not been configured.
   Future<SlackService?> initializeSlackService(String channel) async {

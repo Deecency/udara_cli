@@ -1,3 +1,15 @@
+## 1.3.0
+
+* **NEW**:
+
+- Hooks: declare commands in `udara.yaml` that run at `after_branding` (after the client's native branding is applied, before `flutter build`; also during `whitelabel`, so IDE "Run Client" flows get it) and `after_build` (after a successful build, with `UDARA_ARTIFACT`). Hooks receive `UDARA_CLIENT`, `UDARA_CLIENT_DIR`, `UDARA_BUNDLE_ID`, `UDARA_ENV`, `UDARA_VERSION` and more; a failing hook stops the run and the project is still restored. Unknown hook names fail fast.
+- `doctor` validates `udara.yaml` and checks hook scripts exist and are executable.
+- `example/hooks/` with ready-made Firebase (FCM) and OneSignal push notification hooks.
+
+* **FIXES**:
+
+- `build` and `whitelabel` now restore the project first when a previous run was interrupted. Previously the stale backups were restored by the new run's cleanup, silently reverting part of the new client's branding (e.g. the iOS bundle id).
+
 ## 1.2.0
 
 * **FIXES**:

@@ -78,7 +78,23 @@ udara_cli history
 udara_cli diff --client-a acme --client-b beta
 ```
 
-## 5. Run locally as a client
+## 5. Per-client setup with hooks (optional)
+
+Push notifications and similar services need per-client setup. Copy the
+scripts from [`hooks/`](hooks/) into your project and declare them in
+`udara.yaml`:
+
+```yaml
+hooks:
+  after_branding:
+    - ./scripts/firebase_configure.sh
+    - ./scripts/onesignal_configure.sh
+```
+
+They then run on every `build` and `whitelabel`, including from the IDE
+extensions.
+
+## 6. Run locally as a client
 
 ```bash
 udara_cli whitelabel --client acme --keep

@@ -18,6 +18,7 @@ A powerful CLI tool for managing whitelabel Flutter projects with multi-client s
 - 📜 **Build history** - Every build is recorded locally so you can review recent runs
 - 🔍 **Client diffing** - Compare env configuration between two clients at a glance
 - 🧪 **Persistent whitelabeling** - Apply a client's branding and run it locally with `flutter run`
+- 🪝 **Hooks** - Run your own per-client scripts (Firebase, OneSignal, uploads) at fixed points of every build
 
 ---
 
@@ -467,6 +468,7 @@ The CLI performs the following steps:
 4. **Final Build**: Builds the app and renames the artifact to `<client>_v<version>.<apk|aab|ipa>`
 5. **Cleanup**: Restores the original project state (always runs, even on failure)
 6. **History**: Records the build (success or failure) to `.udara_build_history.json`
+   (`after_branding` hooks run at the end of step 3, `after_build` hooks after step 4)
 7. **Notifications** (if enabled): Sends a build summary to Slack, and uploads the APK for APK builds
 
 ### Persistent Whitelabeling (`whitelabel`)
@@ -482,6 +484,37 @@ flutter run --dart-define=CLIENT_ENV=.env
 Run `udara_cli clean` to restore the staged files after a `--keep`. Native files rewritten by `whitelabel` stay as they are, so commit or revert them with git as you see fit.
 
 ---
+
+## Hooks 🪝
+
+Hooks run your own scripts at fixed points of `build` and `whitelabel`, for
+per-client setup the CLI doesn't know about, such as push notifications,
+analytics or uploads. Declare them in `udara.yaml` in the project root:
+
+```yaml
+hooks:
+  after_branding:
+    - ./scripts/firebase_configure.sh
+    - ./scripts/onesignal_configure.sh
+  after_build:
+    - ./scripts/upload_to_store.sh
+```
+
+| Hook | When it runs |
+| --- | --- |
+| `after_branding` | After the client's bundle id, app name, icons, splash and iOS team are applied, before `flutter build`. Runs in `build` and `whitelabel`, so the IDE extensions' Run Client gets it too. |
+| `after_build` | After a successful `build`, with `UDARA_ARTIFACT` pointing at the renamed artifact. |
+
+Each command runs through the shell in the project root with variables such
+as `UDARA_CLIENT`, `UDARA_CLIENT_DIR`, `UDARA_BUNDLE_ID`, `UDARA_ENV`,
+`UDARA_PLATFORM` and `UDARA_VERSION`. A command that exits non-zero stops the
+run, and the project is restored as usual. `udara_cli doctor` validates hook
+names and checks each script exists and is executable.
+
+**Ready-made examples** live in [`example/hooks/`](example/hooks/): a
+Firebase / FCM push notification setup (`flutterfire configure` from a
+per-client `service_account.json`) and a OneSignal setup (iOS Notification
+Service Extension bundle id and app groups), plus the full list of variables.
 
 ## Diagnostics & Utility Commands 🩺
 

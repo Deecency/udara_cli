@@ -93,6 +93,7 @@ Run "udara_cli clean" to restore the project files again.
       Logger.phase('1: Validation & Setup');
 
       checkProjectPrerequisites();
+      await recoverInterruptedRun(cleanup);
       final envFile = await resolveClientEnvFile(client, isTest: isTest);
       final envFileName = p.basename(envFile.path);
 
@@ -117,6 +118,10 @@ Run "udara_cli clean" to restore the project files again.
           ? appIconPath
           : envVars['APP_LOGO_PATH']!;
       final teamId = envVars['DEVELOPMENT_TEAM'];
+
+      // Validate udara.yaml up front so a typo fails before the long work.
+      final hooks = HooksService(projectDir);
+      hooks.load();
 
       Logger.success(
           'Validated "$client" ($envFileName): $appName · $bundleId · v$version');
@@ -196,6 +201,20 @@ Run "udara_cli clean" to restore the project files again.
 
       await runStep('Cleaning Android icon cache',
           () => whiteLabel.cleanAndroidIconCache());
+
+      await hooks.run(
+        HookPoint.afterBranding,
+        HookContext(
+          command: 'whitelabel',
+          projectDir: projectDir,
+          client: client,
+          envFile: envFile,
+          isTest: isTest,
+          version: version,
+          bundleId: bundleId,
+          appName: appName,
+        ),
+      );
 
       Logger.success('Whitelabeling process completed successfully!');
 

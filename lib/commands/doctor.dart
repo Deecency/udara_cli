@@ -39,7 +39,8 @@ class DoctorCommand extends UdaraCommand {
   • flutter_dotenv dependency and the default client env asset
   • Each client's .env / .env_test presence and required keys
   • Referenced icon/logo files exist in the client folder and are not placeholders
-  • Client font configuration (fonts.yaml) and the font files it references''';
+  • Client font configuration (fonts.yaml) and the font files it references
+  • Hooks in udara.yaml: valid hook names, scripts exist and are executable''';
 
   late ConfigService config;
 
@@ -57,6 +58,7 @@ class DoctorCommand extends UdaraCommand {
     await _checkProjectStructure();
     await _checkPubspecDependencies();
     await _checkClients(argResults!['client'] as String?);
+    _checkHooks();
 
     _printSummary();
 
@@ -450,6 +452,53 @@ class DoctorCommand extends UdaraCommand {
           _fail(
             '[$client] fonts.yaml references "$asset" but "${p.basename(asset)}" is not in ${p.relative(fontsDir.path, from: projectDir)}/.',
           );
+        }
+      }
+    }
+  }
+
+  void _checkHooks() {
+    final service = HooksService(projectDir);
+    if (!service.configFile.existsSync()) return;
+
+    Logger.phase('Hooks (${HooksService.configFileName})');
+    final Map<HookPoint, List<String>> hooks;
+    try {
+      hooks = service.load();
+    } on BuildException catch (e) {
+      _fail(e.message, fix: e.fix);
+      return;
+    }
+    if (hooks.values.every((c) => c.isEmpty)) {
+      _warn('${HooksService.configFileName} declares no hook commands.');
+      return;
+    }
+
+    for (final MapEntry(key: point, value: commands) in hooks.entries) {
+      for (final command in commands) {
+        // Only commands that start with a path can be checked on disk;
+        // anything else (e.g. `dart run tool/x.dart`) is resolved by the shell.
+        final program = command.trim().split(RegExp(r'\s+')).first;
+        if (!program.contains('/')) {
+          _pass('${point.key}: `$command`');
+          continue;
+        }
+        final file =
+            File(p.isAbsolute(program) ? program : p.join(projectDir, program));
+        if (!file.existsSync()) {
+          _fail(
+            '${point.key}: "$program" does not exist.',
+            fix:
+                'Fix the path in ${HooksService.configFileName} (relative to the project root).',
+          );
+        } else if (!Platform.isWindows &&
+            !file.statSync().modeString().contains('x')) {
+          _fail(
+            '${point.key}: "$program" is not executable.',
+            fix: 'Run: chmod +x $program',
+          );
+        } else {
+          _pass('${point.key}: `$command`');
         }
       }
     }
