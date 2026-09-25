@@ -14,6 +14,8 @@ class SlackService {
     this.debugMode = false,
   });
 
+  /// Resolved channel ID, learned from the first successful post. Needed by
+  /// the file upload API, which does not accept channel names.
   String? _channelId;
 
   void _debugLog(String message) {
@@ -22,19 +24,18 @@ class SlackService {
     }
   }
 
+  Map<String, String> get _jsonHeaders => {
+        'Authorization': 'Bearer $botToken',
+        'Content-Type': 'application/json',
+      };
+
   /// Test the Slack connection with detailed feedback
   Future<bool> testConnection() async {
     try {
       _debugLog('Testing connection with token: ${_maskToken(botToken)}');
       final url = Uri.parse('https://slack.com/api/auth.test');
 
-      final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer $botToken',
-          'Content-Type': 'application/json',
-        },
-      );
+      final response = await http.post(url, headers: _jsonHeaders);
 
       _debugLog('Auth test response status: ${response.statusCode}');
       _debugLog('Auth test response body: ${response.body}');
@@ -62,73 +63,12 @@ class SlackService {
 
   /// Send a simple text message to Slack
   Future<bool> sendMessage(String message, {String? emoji}) async {
-    try {
-      _debugLog('Sending message to channel: $channel');
-      _debugLog('Message: $message');
-
-      final url = Uri.parse('https://slack.com/api/chat.postMessage');
-
-      final payload = {
-        'channel': channel,
-        'text': message,
-        if (emoji != null) 'icon_emoji': emoji,
-      };
-
-      _debugLog('Payload: ${jsonEncode(payload)}');
-
-      final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer $botToken',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(payload),
-      );
-
-      _debugLog('Message response status: ${response.statusCode}');
-      _debugLog('Message response body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final success = data['ok'] as bool? ?? false;
-
-        if (!success) {
-          final error = data['error'] as String? ?? 'Unknown error';
-          Logger.warning('Failed to send Slack message: $error');
-
-          // Provide helpful error messages
-          switch (error) {
-            case 'channel_not_found':
-              Logger.info('Channel "$channel" not found. Suggestions:');
-              Logger.info('  • Verify the channel exists');
-              Logger.info('  • Ensure the bot is added to the channel');
-              Logger.info(
-                  '  • Use channel ID instead of name if channel is private');
-              break;
-            case 'not_in_channel':
-              Logger.info(
-                  'Bot is not in channel "$channel". Add the bot to the channel first.');
-              break;
-            case 'invalid_auth':
-              Logger.info(
-                  'Invalid bot token. Run "udara_cli setup --notify" to reconfigure.');
-              break;
-          }
-        } else {
-          _debugLog('Message sent successfully');
-        }
-
-        return success;
-      }
-
-      Logger.warning(
-          'HTTP error sending Slack message: ${response.statusCode}');
-      return false;
-    } catch (e) {
-      _debugLog('Exception sending message: $e');
-      Logger.warning('Failed to send Slack message: $e');
-      return false;
-    }
+    final payload = {
+      'channel': channel,
+      'text': message,
+      if (emoji != null) 'icon_emoji': emoji,
+    };
+    return _postMessage(payload, label: 'message');
   }
 
   /// Send a rich message with attachments/blocks
@@ -139,63 +79,94 @@ class SlackService {
     Map<String, String>? fields,
     String? emoji,
   }) async {
+    final attachment = <String, dynamic>{
+      'color': color,
+      'title': title,
+      'text': message,
+      'ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    };
+
+    if (fields != null && fields.isNotEmpty) {
+      attachment['fields'] = fields.entries
+          .map((e) => {
+                'title': e.key,
+                'value': e.value,
+                'short': true,
+              })
+          .toList();
+    }
+
+    final payload = {
+      'channel': channel,
+      'text': title,
+      'attachments': [attachment],
+      if (emoji != null) 'icon_emoji': emoji,
+    };
+    return _postMessage(payload, label: 'rich message');
+  }
+
+  Future<bool> _postMessage(Map<String, dynamic> payload,
+      {required String label}) async {
     try {
-      _debugLog('Sending rich message to channel: $channel');
-
-      final url = Uri.parse('https://slack.com/api/chat.postMessage');
-
-      final attachment = {
-        'color': color,
-        'title': title,
-        'text': message,
-        'ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      };
-
-      if (fields != null && fields.isNotEmpty) {
-        attachment['fields'] = fields.entries
-            .map((e) => {
-                  'title': e.key,
-                  'value': e.value,
-                  'short': true,
-                })
-            .toList();
-      }
-
-      final payload = {
-        'channel': channel,
-        'attachments': [attachment],
-        if (emoji != null) 'icon_emoji': emoji,
-      };
+      _debugLog('Sending $label to channel: $channel');
+      _debugLog('Payload: ${jsonEncode(payload)}');
 
       final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer $botToken',
-          'Content-Type': 'application/json',
-        },
+        Uri.parse('https://slack.com/api/chat.postMessage'),
+        headers: _jsonHeaders,
         body: jsonEncode(payload),
       );
 
-      _debugLog('Rich message response: ${response.body}');
+      _debugLog('Response status: ${response.statusCode}');
+      _debugLog('Response body: ${response.body}');
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final success = data['ok'] as bool? ?? false;
-
-        _channelId ??= data['channel'] as String?;
-
-        if (!success) {
-          Logger.warning('Failed to send rich Slack message: ${data['error']}');
-        }
-
-        return success;
+      if (response.statusCode != 200) {
+        Logger.warning(
+            'HTTP error sending Slack $label: ${response.statusCode}');
+        return false;
       }
 
+      final data = jsonDecode(response.body);
+      final success = data['ok'] as bool? ?? false;
+
+      if (success) {
+        _channelId ??= data['channel'] as String?;
+        _debugLog('$label sent successfully');
+        return true;
+      }
+
+      final error = data['error'] as String? ?? 'Unknown error';
+      Logger.warning('Failed to send Slack $label: $error');
+      _explainError(error);
       return false;
     } catch (e) {
-      _debugLog('Exception sending rich message: $e');
-      Logger.warning('Failed to send rich Slack message: $e');
+      _debugLog('Exception sending $label: $e');
+      Logger.warning('Failed to send Slack $label: $e');
       return false;
+    }
+  }
+
+  void _explainError(String error) {
+    switch (error) {
+      case 'channel_not_found':
+        Logger.info('Channel "$channel" not found. Suggestions:');
+        Logger.info('  • Verify the channel exists');
+        Logger.info('  • Ensure the bot is added to the channel');
+        Logger.info('  • Use channel ID instead of name if channel is private');
+        break;
+      case 'not_in_channel':
+        Logger.info(
+            'Bot is not in channel "$channel". Add the bot to the channel first.');
+        break;
+      case 'invalid_auth':
+      case 'token_revoked':
+        Logger.info(
+            'Invalid bot token. Run "udara_cli setup --notify" to reconfigure.');
+        break;
+      case 'missing_scope':
+        Logger.info(
+            'Bot token is missing a scope. Required: chat:write, files:write, channels:read.');
+        break;
     }
   }
 
@@ -207,6 +178,12 @@ class SlackService {
   }) async {
     try {
       _debugLog('Starting file upload: ${file.path}');
+
+      if (_channelId == null) {
+        Logger.warning(
+            'Cannot share file: Slack channel ID is unknown. Send a message first.');
+        return false;
+      }
 
       // Step 1: Get upload URL and file ID from Slack
       final uploadInfo = await _getUploadUrl(file);
@@ -342,18 +319,12 @@ class SlackService {
           }
         ],
         'channel_id': _channelId,
+        if (comment != null) 'initial_comment': comment,
       };
-
-      if (comment != null) {
-        requestBody['initial_comment'] = comment;
-      }
 
       final response = await http.post(
         Uri.parse('https://slack.com/api/files.completeUploadExternal'),
-        headers: {
-          'Authorization': 'Bearer $botToken',
-          'Content-Type': 'application/json',
-        },
+        headers: _jsonHeaders,
         body: jsonEncode(requestBody),
       );
 
@@ -419,7 +390,7 @@ class SlackService {
 
     final fields = <String, String>{
       'Client': client,
-      'Platform': platform,
+      if (platform.isNotEmpty) 'Platform': platform,
       'Step': step,
       'Status': status.toUpperCase(),
     };
@@ -444,7 +415,7 @@ class SlackService {
     }
   }
 
-  /// Send build completion summary
+  /// Send build completion summary, then upload the APK when there is one.
   Future<void> sendBuildSummary({
     required String client,
     required String platform,
@@ -459,54 +430,54 @@ class SlackService {
     _debugLog('Success: $success');
     _debugLog('Type: $type');
     _debugLog('Artifact file: ${artifactFile?.path ?? 'null'}');
-    _debugLog('File exists: ${artifactFile?.existsSync() ?? false}');
+
+    final duration = '${buildTime.inMinutes}m ${buildTime.inSeconds % 60}s';
 
     final fields = <String, String>{
       'Client': client,
       'Platform': platform,
       'Type': type.toUpperCase(),
       'Version': version,
-      'Build Time': '${buildTime.inMinutes}m ${buildTime.inSeconds % 60}s',
+      'Build Time': duration,
       'Status': success ? 'SUCCESS' : 'FAILED',
+      if (errorMessage != null) 'Error': errorMessage,
+      if (artifactFile != null) 'Artifact': path.basename(artifactFile.path),
     };
 
-    if (errorMessage != null) {
-      fields['Error'] = errorMessage;
+    final posted = await sendRichMessage(
+      title: success
+          ? ':white_check_mark: Build Succeeded - $client'
+          : ':x: Build Failed - $client',
+      message: success
+          ? 'The $platform ${type.toUpperCase()} build for "$client" completed in $duration.'
+          : 'The $platform build for "$client" failed after $duration.',
+      color: success ? 'good' : 'danger',
+      fields: fields,
+    );
+    if (!posted) {
+      Logger.warning('Failed to send build summary to Slack.');
     }
 
-    // Upload artifact if it's an APK and build was successful
-    if (success && type.toLowerCase() == 'apk' && artifactFile != null) {
+    final isApk = type.toLowerCase() == 'apk';
+    if (success && isApk && artifactFile != null && artifactFile.existsSync()) {
       Logger.info('Uploading APK artifact to Slack...');
 
       final uploadSuccess = await uploadFile(
         file: artifactFile,
-        title: '📱 ${client}_$version.apk',
+        title: '📱 ${path.basename(artifactFile.path)}',
         comment: 'Fresh build ready for testing! 🚀\n\n'
             '• Client: $client\n'
             '• Version: $version\n'
             '• Platform: $platform\n'
-            '• Build time: ${buildTime.inMinutes}m ${buildTime.inSeconds % 60}s',
+            '• Build time: $duration',
       );
 
-      if (uploadSuccess) {
-        Logger.success('APK uploaded to Slack successfully!');
-      } else {
+      if (!uploadSuccess) {
         Logger.warning('Failed to upload APK artifact to Slack.');
       }
-    } else {
-      _debugLog('Skipping APK upload:');
-      _debugLog('  - Success: $success');
-      _debugLog('  - Type is APK: ${type.toLowerCase() == 'apk'}');
-      _debugLog('  - File provided: ${artifactFile != null}');
-
-      if (success && type.toLowerCase() != 'apk') {
-        Logger.info(
-            'APK upload skipped — build type is "$type" (only APKs are uploaded)');
-      } else if (!success) {
-        Logger.info('APK upload skipped — build was not successful.');
-      } else if (artifactFile == null) {
-        Logger.warning('APK upload skipped — no artifact file provided.');
-      }
+    } else if (success && !isApk) {
+      Logger.info(
+          'Artifact upload skipped — only APKs are uploaded to Slack (build type is "$type").');
     }
   }
 

@@ -4,7 +4,7 @@ homepage: https://github.com/deecency/udara_cli
 repository: https://github.com/deecency/udara_cli
 issue_tracker: https://github.com/deecency/udara_cli/issues
 topics: [cli, whitelabel, flutter, build-tool]
-version: 1.1.2
+version: 1.2.0
 environment:
   sdk: ">=3.0.0 <4.0.0"
  
@@ -19,3 +19,5 @@ dependencies:
 
 executables:
   udara_cli:
+dev_dependencies:
+  test: ^1.32.0

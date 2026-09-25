@@ -8,3 +8,8 @@ pubspec.lock
 .idea/
 .vscode/
 .udara/
+
+# Udara CLI local state (from running the CLI inside this repo)
+.udara/
+.udara_build_history.json
+.DS_Store

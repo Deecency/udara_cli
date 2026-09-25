@@ -1,0 +1,47 @@
+<idea-plugin>
+    <id>com.deecency.udara</id>
+    <name>Udara Whitelabel</name>
+    <vendor url="https://github.com/Deecency/udara_cli">Deecency</vendor>
+
+    <description><![CDATA[
+    Browse the whitelabel clients of a Flutter project, inspect their env files,
+    and run or build any client with <a href="https://pub.dev/packages/udara_cli">udara_cli</a>
+    from a tool window in Android Studio or IntelliJ IDEA.
+    <ul>
+      <li>Clients tree with app name, bundle id, .env / .env_test keys (secrets masked)</li>
+      <li>Run a client: whitelabel the project, then <code>flutter run</code> in the Terminal</li>
+      <li>Build a client (platform, type, environment) and reveal the artifact</li>
+      <li>Doctor, Clean, Diff, Set up clients, and a Build History table</li>
+    </ul>
+    Requires <code>udara_cli</code> on the PATH or configured under Settings | Tools | Udara Whitelabel.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Udara"
+                    anchor="right"
+                    icon="/icons/udara.svg"
+                    factoryClass="com.deecency.udara.ui.UdaraToolWindowFactory"/>
+        <applicationConfigurable parentId="tools"
+                                 instance="com.deecency.udara.settings.UdaraSettingsConfigurable"
+                                 id="com.deecency.udara.settings"
+                                 displayName="Udara Whitelabel"/>
+        <notificationGroup id="Udara" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="Udara.ToolsMenu" text="Udara Whitelabel" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="Udara.RunClient" class="com.deecency.udara.actions.RunClientAction" text="Run Client…"/>
+            <action id="Udara.BuildClient" class="com.deecency.udara.actions.BuildClientAction" text="Build Client…"/>
+            <action id="Udara.Whitelabel" class="com.deecency.udara.actions.WhitelabelAction" text="Whitelabel Project as Client…"/>
+            <separator/>
+            <action id="Udara.Doctor" class="com.deecency.udara.actions.DoctorAction" text="Doctor"/>
+            <action id="Udara.Clean" class="com.deecency.udara.actions.CleanAction" text="Clean (Restore Project State)"/>
+            <action id="Udara.Diff" class="com.deecency.udara.actions.DiffAction" text="Diff Two Clients…"/>
+            <action id="Udara.SetupClients" class="com.deecency.udara.actions.SetupClientsAction" text="Set Up Clients…"/>
+        </group>
+    </actions>
+</idea-plugin>

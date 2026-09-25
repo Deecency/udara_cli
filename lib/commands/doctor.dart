@@ -36,10 +36,10 @@ class DoctorCommand extends UdaraCommand {
  CHECKS:
   • Required project files (pubspec.yaml, flutter_launcher_icons.yaml)
   • Required dev dependencies (rename, flutter_launcher_icons, splash_master)
-  • flutter_dotenv dependency (needed at runtime)
+  • flutter_dotenv dependency and the default client env asset
   • Each client's .env / .env_test presence and required keys
-  • Referenced asset paths (icons, logos) actually exist on disk
-  • Client font configuration (fonts.yaml), if present''';
+  • Referenced icon/logo files exist in the client folder and are not placeholders
+  • Client font configuration (fonts.yaml) and the font files it references''';
 
   late ConfigService config;
 
@@ -56,7 +56,7 @@ class DoctorCommand extends UdaraCommand {
 
     await _checkProjectStructure();
     await _checkPubspecDependencies();
-    await _checkClients(argResults?['client'] as String?);
+    await _checkClients(argResults!['client'] as String?);
 
     _printSummary();
 
@@ -91,7 +91,6 @@ class DoctorCommand extends UdaraCommand {
       );
     }
 
-    final clientsDir = Directory(p.join(projectDir, 'clients'));
     if (clientsDir.existsSync()) {
       _pass('"clients" directory found.');
     } else {
@@ -99,6 +98,25 @@ class DoctorCommand extends UdaraCommand {
         '"clients" directory is missing.',
         fix: 'Run "udara_cli setup --clients default" to create it.',
       );
+    }
+
+    final leftoverBackups = Directory(p.join(projectDir, '.udara'));
+    if (leftoverBackups.existsSync()) {
+      _warn(
+        'Leftover ".udara" state from an interrupted build was found.',
+        fix: 'Run "udara_cli clean" to restore the project.',
+      );
+    }
+
+    final gitignore = File(p.join(projectDir, '.gitignore'));
+    if (gitignore.existsSync()) {
+      final lines = (await gitignore.readAsLines()).map((l) => l.trim());
+      if (!lines.contains(ConfigService.historyFileName)) {
+        _warn(
+          '${ConfigService.historyFileName} is not in .gitignore.',
+          fix: 'Run "udara_cli setup" to add local state files to .gitignore.',
+        );
+      }
     }
   }
 
@@ -140,8 +158,8 @@ class DoctorCommand extends UdaraCommand {
     } else {
       _fail(
         '"flutter_dotenv" is not in dependencies.',
-        fix: 'Add "flutter_dotenv: ^5.1.0" (or latest) to pubspec.yaml. '
-            'The build relies on it to load client env vars at runtime.',
+        fix: 'Run "udara_cli setup" or add "flutter_dotenv" to pubspec.yaml. '
+            'The app relies on it to load client env vars at runtime.',
       );
     }
 
@@ -149,8 +167,22 @@ class DoctorCommand extends UdaraCommand {
       _pass('"splash_master" configuration found in pubspec.yaml.');
     } else {
       _warn(
-        'No "splash_master" configuration in pubspec.yaml. '
-        'Run "udara_cli setup" if this is unexpected.',
+        'No "splash_master" configuration in pubspec.yaml.',
+        fix: 'Run "udara_cli setup" if this is unexpected.',
+      );
+    }
+
+    final flutter = yaml['flutter'] as YamlMap?;
+    final assets = (flutter?['assets'] as YamlList?)?.map((a) => a.toString());
+    if (assets != null &&
+        assets.contains(ConfigService.defaultClientEnvAsset)) {
+      _pass(
+          'Default env "${ConfigService.defaultClientEnvAsset}" is registered as an asset.');
+    } else {
+      _warn(
+        '"${ConfigService.defaultClientEnvAsset}" is not listed under flutter.assets, '
+        'so plain "flutter run" cannot load the fallback env.',
+        fix: 'Run "udara_cli setup --clients default" to register it.',
       );
     }
   }
@@ -158,23 +190,20 @@ class DoctorCommand extends UdaraCommand {
   Future<void> _checkClients(String? clientFilter) async {
     Logger.phase('Client Configuration');
 
-    final clientsDir = Directory(p.join(projectDir, 'clients'));
     if (!clientsDir.existsSync()) {
       _fail('Skipped: "clients" directory not found.');
       return;
     }
 
-    final clientNames = <String>[];
-    await for (final entity in clientsDir.list()) {
-      if (entity is Directory) clientNames.add(p.basename(entity.path));
-    }
-    clientNames.sort();
+    final clientNames = await listClientNames();
 
     if (clientFilter != null) {
       if (!clientNames.contains(clientFilter)) {
         _fail(
           'Client "$clientFilter" not found in "clients" directory.',
-          fix: 'Run "udara_cli list-clients" to see available clients.',
+          fix: clientNames.isEmpty
+              ? 'Run "udara_cli setup --clients $clientFilter" to create it.'
+              : 'Available clients: ${clientNames.join(', ')}.',
         );
         return;
       }
@@ -183,11 +212,12 @@ class DoctorCommand extends UdaraCommand {
     }
 
     if (clientNames.isEmpty) {
-      _warn('No client directories found under "clients".');
+      _warn('No client directories found under "clients".',
+          fix: 'Run "udara_cli setup --clients <name>".');
       return;
     }
 
-    if (!clientNames.contains('default')) {
+    if (!clientNames.contains(WhiteLabelService.defaultClientName)) {
       _warn(
         'No "default" client found. A default client is recommended as a '
         'fallback configuration.',
@@ -201,8 +231,9 @@ class DoctorCommand extends UdaraCommand {
 
   Future<void> _checkClient(String client) async {
     Logger.info('── $client ──────────────────────────');
-    final clientDir = Directory(p.join(projectDir, 'clients', client));
+    final clientDir = Directory(p.join(clientsDir.path, client));
 
+    Map<String, String> envVars = {};
     final envFile = File(p.join(clientDir.path, '.env'));
     if (!envFile.existsSync()) {
       _fail(
@@ -211,12 +242,13 @@ class DoctorCommand extends UdaraCommand {
       );
     } else {
       _pass('[$client] .env found.');
-      await _checkEnvContents(client, envFile);
+      envVars = await _checkEnvContents(client, envFile, '.env');
     }
 
     final envTestFile = File(p.join(clientDir.path, '.env_test'));
     if (envTestFile.existsSync()) {
       _pass('[$client] .env_test found.');
+      await _checkEnvContents(client, envTestFile, '.env_test');
     } else {
       _warn(
         '[$client] .env_test is missing. '
@@ -224,64 +256,126 @@ class DoctorCommand extends UdaraCommand {
       );
     }
 
-    final fontsDir = Directory(p.join(clientDir.path, 'fonts'));
-    if (fontsDir.existsSync()) {
+    final assetsPath = envVars['ASSETS_PATH'];
+    final fontsDir = WhiteLabelService(projectDir: projectDir, config: config)
+        .findClientFontsDir(client, assetsPath ?? p.join('clients', client));
+    if (fontsDir != null) {
       await _checkFonts(client, fontsDir);
     }
   }
 
-  Future<void> _checkEnvContents(String client, File envFile) async {
+  /// Image paths already validated for the current client, so `.env_test`
+  /// does not repeat `.env`'s findings when they point at the same file.
+  final _checkedImages = <String>{};
+
+  Future<Map<String, String>> _checkEnvContents(
+      String client, File envFile, String label) async {
     final envVars = await config.parseEnvFile(envFile);
 
-    const requiredKeys = [
-      'APP_NAME_PROD',
-      'BUNDLE_ID',
-      'ASSETS_PATH',
-      'APP_ICON_PATH',
-    ];
-
-    final missing =
-        requiredKeys.where((k) => (envVars[k] ?? '').trim().isEmpty).toList();
+    final missing = requiredEnvKeys
+        .where((k) => (envVars[k] ?? '').trim().isEmpty)
+        .toList();
 
     if (missing.isEmpty) {
       _pass(
-          '[$client] Required env keys present (${requiredKeys.join(', ')}).');
+          '[$client] $label has all required keys (${requiredEnvKeys.join(', ')}).');
     } else {
       _fail(
-        '[$client] Missing required env keys: ${missing.join(', ')}.',
-        fix: 'Add ${missing.join(', ')} to clients/$client/.env',
+        '[$client] $label is missing required keys: ${missing.join(', ')}.',
+        fix: 'Add ${missing.join(', ')} to clients/$client/$label',
       );
     }
 
-    /// This is not accurate, as the assets are stored in the clients folder
-    /// so looking for them in their predefined state for asset
-    /// configureation is wrong.
-
-    /*for (final key in ['APP_ICON_PATH', 'APP_LOGO_PATH']) {
-      final path = envVars[key];
-      if (path == null || path.trim().isEmpty) continue;
-
-      final assetFile = File(p.join(projectDir, path));
-      if (assetFile.existsSync()) {
-        _pass('[$client] $key points to an existing file.');
-      } else {
+    final assetsPath = envVars['ASSETS_PATH'];
+    if (assetsPath != null && assetsPath.trim().isNotEmpty) {
+      final assetsDir = Directory(p.join(projectDir, assetsPath));
+      final clientRoot = Directory(p.join(clientsDir.path, client));
+      final rel =
+          p.relative(assetsDir.absolute.path, from: clientRoot.absolute.path);
+      if (!assetsDir.existsSync()) {
+        _fail('[$client] $label ASSETS_PATH ("$assetsPath") does not exist.');
+      } else if (rel == '..' || rel.startsWith('../') || p.isAbsolute(rel)) {
         _fail(
-          '[$client] $key ("$path") does not exist on disk.',
-          fix: 'Verify the path is correct and the file has been added.',
+          '[$client] $label ASSETS_PATH ("$assetsPath") is outside clients/$client/.',
+          fix: 'Point ASSETS_PATH at a folder inside clients/$client/.',
         );
+      } else {
+        _pass('[$client] $label ASSETS_PATH exists.');
+        for (final key in ['APP_ICON_PATH', 'APP_LOGO_PATH']) {
+          _checkImagePath(client, label, key, envVars[key], assetsPath);
+        }
       }
-    } */
+    }
+
+    final bundleId = envVars['BUNDLE_ID'];
+    if (bundleId != null &&
+        bundleId.isNotEmpty &&
+        !RegExp(r'^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$')
+            .hasMatch(bundleId)) {
+      _warn(
+        '[$client] $label BUNDLE_ID ("$bundleId") is not a valid reverse-domain identifier.',
+        fix:
+            'Use letters, digits and underscores separated by dots, e.g. com.company.app.',
+      );
+    }
 
     final teamId = envVars['DEVELOPMENT_TEAM'];
     if (teamId != null && teamId.trim().isNotEmpty) {
       if (RegExp(r'^[A-Za-z0-9]{10}$').hasMatch(teamId.trim())) {
-        _pass('[$client] DEVELOPMENT_TEAM looks like a valid Team ID.');
+        _pass('[$client] $label DEVELOPMENT_TEAM looks like a valid Team ID.');
       } else {
         _warn(
-          '[$client] DEVELOPMENT_TEAM ("$teamId") does not look like a '
+          '[$client] $label DEVELOPMENT_TEAM ("$teamId") does not look like a '
           'valid 10-character Apple Developer Team ID.',
         );
       }
+    }
+    return envVars;
+  }
+
+  /// Icon/logo paths point at the synced location
+  /// (`assets/branding/<client>/...`), which only exists during a build, so
+  /// they are resolved back to the client's ASSETS_PATH for validation.
+  void _checkImagePath(String client, String label, String key, String? value,
+      String assetsPath) {
+    if (value == null || value.trim().isEmpty) {
+      if (key == 'APP_LOGO_PATH') {
+        _warn(
+            '[$client] $label has no $key; the app icon will be used for the splash screen.');
+      }
+      return;
+    }
+
+    final brandingPrefix = 'assets/branding/$client/';
+    final File resolved;
+    if (value.startsWith(brandingPrefix)) {
+      resolved = File(p.join(
+          projectDir, assetsPath, value.substring(brandingPrefix.length)));
+    } else if (value.startsWith('assets/branding/')) {
+      _fail(
+        '[$client] $label $key ("$value") points at another client\'s branding folder.',
+        fix: 'Use "$brandingPrefix<file>" for this client.',
+      );
+      return;
+    } else {
+      resolved = File(p.join(projectDir, value));
+    }
+
+    if (!_checkedImages.add('$client:$key:${resolved.path}')) return;
+
+    if (!resolved.existsSync()) {
+      _fail(
+        '[$client] $label $key ("$value") resolves to "${p.relative(resolved.path, from: projectDir)}", which does not exist.',
+        fix: 'Add the image to clients/$client/ or fix the path.',
+      );
+    } else if (isPlaceholderPng(resolved)) {
+      _warn(
+        '[$client] $label $key is still the generated placeholder image.',
+        fix:
+            'Replace ${p.relative(resolved.path, from: projectDir)} with real artwork.',
+      );
+    } else {
+      _pass('[$client] $label $key points to an existing file.');
     }
   }
 
@@ -293,7 +387,7 @@ class DoctorCommand extends UdaraCommand {
         .toList();
 
     if (fontFiles.isEmpty) {
-      _warn('[$client] "fonts" directory exists but is empty.');
+      // `setup` creates an empty fonts/ folder; nothing to validate.
       return;
     }
 
@@ -306,28 +400,58 @@ class DoctorCommand extends UdaraCommand {
       return;
     }
 
+    final dynamic parsed;
     try {
-      final parsed = loadYaml(await fontsYaml.readAsString());
-      if (parsed is YamlList || parsed is List) {
-        _pass('[$client] fonts.yaml is a valid font family list.');
-      } else if (parsed is YamlMap && parsed.containsKey('fonts')) {
-        _fail(
-          '[$client] fonts.yaml has a top-level "fonts:" key.',
-          fix: 'Remove the top-level "fonts:" key; start directly with '
-              'the list of font families.',
-        );
-      } else {
-        _fail(
-          '[$client] fonts.yaml is not a list of font families.',
-          fix: 'Match Flutter\'s expected structure (a list starting with '
-              '"- family: ...").',
-        );
-      }
+      parsed = loadYaml(await fontsYaml.readAsString());
     } catch (e) {
       _fail(
         '[$client] fonts.yaml could not be parsed: $e',
         fix: 'Check fonts.yaml for YAML syntax errors.',
       );
+      return;
+    }
+
+    if (parsed is YamlMap && parsed.containsKey('fonts')) {
+      _fail(
+        '[$client] fonts.yaml has a top-level "fonts:" key.',
+        fix: 'Remove the top-level "fonts:" key; start directly with '
+            'the list of font families.',
+      );
+      return;
+    }
+    if (parsed is! YamlList) {
+      _fail(
+        '[$client] fonts.yaml is not a list of font families.',
+        fix: 'Match Flutter\'s expected structure (a list starting with '
+            '"- family: ...").',
+      );
+      return;
+    }
+    _pass('[$client] fonts.yaml is a valid font family list.');
+
+    final available = fontFiles.map((f) => p.basename(f.path)).toSet();
+    for (final family in parsed) {
+      if (family is! YamlMap) continue;
+      final fonts = family['fonts'];
+      if (fonts is! YamlList) {
+        _warn(
+            '[$client] fonts.yaml family "${family['family']}" has no "fonts" list.');
+        continue;
+      }
+      for (final font in fonts) {
+        final asset = (font is YamlMap ? font['asset'] : null)?.toString();
+        if (asset == null) continue;
+        if (!asset.startsWith('assets/fonts/')) {
+          _warn(
+            '[$client] fonts.yaml asset "$asset" should start with "assets/fonts/", '
+            'where client fonts are copied at build time.',
+          );
+        } else if (!available.contains(p.basename(asset))) {
+          _fail(
+            '[$client] fonts.yaml references "$asset" but "${p.basename(asset)}" is not in ${p.relative(fontsDir.path, from: projectDir)}/.',
+          );
+        }
+      }
     }
   }
 
@@ -340,8 +464,8 @@ class DoctorCommand extends UdaraCommand {
     _passed++;
   }
 
-  void _warn(String message) {
-    Logger.warning(message);
+  void _warn(String message, {String? fix}) {
+    Logger.warning(fix == null ? message : '$message ($fix)');
     _warned++;
   }
 

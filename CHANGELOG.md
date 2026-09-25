@@ -1,3 +1,34 @@
+## 1.2.0
+
+* **FIXES**:
+
+- `.env` parsing now handles inline `# comments`, single quotes and `export KEY=VALUE`. Previously a value such as `DEVELOPMENT_TEAM="ABCD1234" #comment` (the template `setup` generated) was read as `ABCD1234" #comment` and patched into the Xcode project verbatim.
+- An existing root `.env` is backed up before a build stages the client env there, and restored afterwards; when no root `.env` existed the staged copy is removed on cleanup instead of leaving client secrets behind.
+- Built-in ignore patterns such as `*.jks` and `*.pem` now also match files in sub-folders of the client assets directory, so nested keystores and keys are no longer copied into the app bundle.
+- `clients/default/.env` (the runtime fallback registered by `setup`) is no longer stripped from `flutter.assets` when a client is applied.
+- `whitelabel` now stages the env the same way as `build` (root `.env`, registered as an asset), honours `--test` and `DEVELOPMENT_TEAM`, and restores the staged project files afterwards (the iOS project file is left as patched). New `--keep` flag leaves them in place so the app can be run as the client with `flutter run --dart-define=CLIENT_ENV=.env`.
+- Unknown options (e.g. `udara_cli build --bogus`) are reported as usage errors with the command's help instead of an "Unexpected Error" asking to file a bug.
+- iOS builds record `ipa` as the artifact type (instead of the Android default `aab`) and the built `.ipa` is renamed to `<client>_v<version>.ipa` like Android artifacts.
+- The Slack build summary is now actually posted for every build; previously only APK uploads happened and AAB/iOS/failed builds produced no summary message.
+- The splash screen image now uses `APP_LOGO_PATH` (falling back to `APP_ICON_PATH`) as documented, instead of always using the app icon.
+- Client fonts are looked up in `clients/<client>/fonts` first (what `doctor` validates) and then `<ASSETS_PATH>/fonts`.
+- The default client's branding folder is preserved consistently: the pre-sync cleanup no longer deletes it while the post-build cleanup kept it.
+- Removed the stray `.udara_build_history.json` from the repository and ignored it.
+
+* **IMPROVEMENTS**:
+
+- Global `--verbose` flag: prints stack traces on failures and enables Slack debug output.
+- `doctor` validates icon/logo paths again by resolving them to the client folder, flags images that are still the generated placeholder, checks `fonts.yaml` references against the font files present, validates `BUNDLE_ID` format, warns about leftover `.udara` state from interrupted builds and about `.udara_build_history.json` missing from `.gitignore`.
+- `setup --clients` generates valid solid-colour placeholder PNGs (so icon/splash tooling runs before real artwork exists), a per-client `README.md`, a cleaner `.env` template, adds `flutter_dotenv` when missing, and appends `.udara/`, `.udara_build_history.json` and `/.env` to `.gitignore`.
+- `build` fails fast with a pointed message when the client folder, its env file, or `flutter_launcher_icons.yaml` is missing (listing the available clients), and prints a build summary with duration and artifact path.
+- `list-clients` shows each client's app name, bundle id and whether a `.env_test` exists.
+- `history` prints the artifact path of successful builds and rejects a non-numeric `--limit`.
+- `clean` restores any files left backed up by an interrupted build before running `flutter clean`.
+- Shared step/validation/Slack helpers moved into the base command; dead code removed.
+- Added a unit test suite (`dart test`) covering env parsing, pubspec asset editing, backup/restore, asset sync ignore rules and artifact renaming.
+- `list-clients --json` and `history --json` emit machine-readable output (human log lines move to stderr) for editor integrations and scripts.
+- New IDE extensions under `extensions/`: a VS Code extension and an Android Studio / IntelliJ plugin that list clients and env files and trigger run, build, whitelabel, doctor, clean and diff through the CLI.
+
 ## 1.1.2
 
 * **FIXES**:

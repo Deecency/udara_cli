@@ -17,6 +17,7 @@ A powerful CLI tool for managing whitelabel Flutter projects with multi-client s
 - 🩺 **Pre-build validation** - Catch missing config, keys, or assets before a build fails
 - 📜 **Build history** - Every build is recorded locally so you can review recent runs
 - 🔍 **Client diffing** - Compare env configuration between two clients at a glance
+- 🧪 **Persistent whitelabeling** - Apply a client's branding and run it locally with `flutter run`
 
 ---
 
@@ -63,10 +64,10 @@ udara_cli setup
 ```
 
 This will:
-- Install required dependencies (`rename`, `flutter_launcher_icons`, `splash_master`)
+- Install required dependencies (`rename`, `flutter_launcher_icons`, `splash_master` and `flutter_dotenv`)
 - Create `flutter_launcher_icons.yaml` configuration file
 - Add `splash_master` configuration to your `pubspec.yaml`
-- Set up the basic project structure
+- Add the CLI's local state files (`.udara/`, `.udara_build_history.json`, `/.env`) to `.gitignore`
 
 ### 2. Initialize Client Directories
 
@@ -80,11 +81,11 @@ udara_cli setup --clients default,clientA,clientB
 This will create the complete directory structure for each client, including:
 - Client folder in `clients/[name]/`
 - Environment files (`.env` and `.env_test`)
-- Placeholder logo files
+- Valid placeholder `logo_small.png` / `logo_large.png` images (replace them with real artwork; `doctor` warns while they are still placeholders)
 - Fonts directory
 - Client-specific README
 
-**Note**: Always include a `default` client as a fallback configuration.
+**Note**: A `default` client is always created as the runtime fallback, and `clients/default/.env` is registered under `flutter.assets` so plain `flutter run` works.
 
 ### 3. Optional: Configure Slack Notifications
 
@@ -125,34 +126,25 @@ Your Flutter project must follow this structure for the CLI to work properly:
 ```
 your_flutter_project/
 ├── clients/
-│   ├── default/
-│   │   ├── assets/
-│   │   ├── fonts/ (optional)
-│   │   └── .env
-│   │
-│   ├── clientA/
-│   │   ├── assets/
-│   │   ├── fonts/ (optional)
+│   ├── default/                 # required fallback client
 │   │   ├── .env
-│   │   └── .env_test
+│   │   ├── .env_test
+│   │   ├── logo_small.png       # app icon source
+│   │   ├── logo_large.png       # splash screen source
+│   │   └── fonts/               # optional custom fonts + fonts.yaml
+│   ├── clientA/
+│   │   └── ... same layout ...
 │   └── clientB/
-│       ├── assets/
-│       ├── fonts/ (optional)
-│       ├── .env
-│       └── .env_test
+│       └── ... same layout ...
 ├── assets/
-│   └── branding/
-│       ├── default/
-│       │   ├── logo_small.png
-│       │   └── logo_large.png
-│       ├── clientA/
-│       │   ├── logo_small.png
-│       │   └── logo_large.png
-│       └── clientB/
-│           ├── logo_small.png
-│           └── logo_large.png
+│   └── branding/                # GENERATED: the active client's files are
+│       └── <client>/            # copied here at build time and removed again
+├── .udaraignore                 # patterns never copied into the app bundle
+├── flutter_launcher_icons.yaml
 └── pubspec.yaml
 ```
+
+Everything inside a client folder (except env files, secrets, `README.md` and anything matching `.udaraignore`) is copied to `assets/branding/<client>/` when that client is built, and the folder is registered under `flutter.assets`. Sub-folders are copied too, but note that Flutter only bundles the top level of a registered asset directory.
 
 ---
 
@@ -160,7 +152,7 @@ your_flutter_project/
 
 ### Important: flutter_dotenv Dependency
 
-**This tool is heavily dependent on environment files and requires the `flutter_dotenv` package.** Make sure to add it to your `pubspec.yaml`:
+**This tool is heavily dependent on environment files and requires the `flutter_dotenv` package.** `udara_cli setup` adds it for you; otherwise make sure it is in your `pubspec.yaml`:
 
 ```yaml
 dependencies:
@@ -201,10 +193,11 @@ dotenv.env['VARIABLE_NAME']
 The whitelabel system operates in two phases:
 
 1. **Build Time**: When you run the CLI with a specific `--client` flag, it swaps out the environment files and configures the build process accordingly. The CLI:
-   - Loads the client-specific `.env` file from `clients/[client_name]/.env`
+   - Loads the client-specific `.env` (or `.env_test` with `--test`) from `clients/[client_name]/`
+   - Stages a copy of it as `.env` in the project root and registers it under `flutter.assets` (an existing root `.env` is backed up and restored afterwards)
    - Copies client-specific assets (icons, logos, fonts) to the appropriate locations
    - Updates the app's bundle ID, app name, and other build configurations
-   - Passes the environment file path to Flutter via the `CLIENT_ENV` compile-time constant
+   - Passes `--dart-define=CLIENT_ENV=.env` to Flutter so the app loads the staged file
 
 2. **Runtime**: Once the app is running, `flutter_dotenv` reads the environment variables that were configured at build time. This allows you to:
    - Access build configurations that were set during compilation
@@ -255,23 +248,31 @@ udara_cli build --client microsoft --platform ios
 
 ### Required Environment Variables
 
-Each client must have corresponding environment files in their respective `clients/client_name/` directory with the following structure:
+Each client must have corresponding environment files in their respective `clients/client_name/` directory. The CLI reads these keys:
 
 ```env
-# App Names for Different Environments
-APP_NAME_DEV="Your App Dev"
-APP_NAME_STAGING="Your App Staging"
+# Display name applied to the app (also used for .env_test builds)
 APP_NAME_PROD="Your App"
 
 # Bundle/Package Identifier
 BUNDLE_ID="com.yourcompany.yourapp"
 
-# Asset Paths (relative to project root)
+# Folder (inside clients/<name>/) whose contents are copied to assets/branding/<name>/
 ASSETS_PATH="clients/default/"
+
+# Launcher icon source, expressed as its synced location
 APP_ICON_PATH="assets/branding/default/logo_small.png"
+
+# Optional: splash screen image (falls back to APP_ICON_PATH)
 APP_LOGO_PATH="assets/branding/default/logo_large.png"
-APP_LOGO_ICON_PATH="assets/branding/default/logo_small.png"
+
+# Optional: iOS signing team (see below)
+DEVELOPMENT_TEAM="ABC123XYZ9"
 ```
+
+`APP_NAME_PROD`, `BUNDLE_ID`, `ASSETS_PATH` and `APP_ICON_PATH` are mandatory; `doctor` and `build` fail early when one is missing. Every other key is yours to define and read in the app via `dotenv.env['KEY']`.
+
+Env files follow the usual dotenv rules: `KEY=VALUE`, optional single or double quotes, `export KEY=VALUE`, and `# comments` on their own line or after a value.
 
 ### Optional Theme Variables
 
@@ -296,7 +297,7 @@ FONT_FAMILY="Manrope"
 
 ### Client-Specific Custom Fonts
 
-The CLI supports client-specific custom fonts. Here's how to set them up:
+The CLI supports client-specific custom fonts. Fonts are looked up in `clients/<name>/fonts/` first, then `<ASSETS_PATH>/fonts/`. Here's how to set them up:
 
 #### 1. Add Fonts to Client Directory
 
@@ -421,6 +422,11 @@ udara_cli build --client clientA --platform android
 - `--slack`: Send build notifications to Slack
 - `--slack-channel`: Specify Slack channel (e.g., `#builds`)
 
+### Global Options
+
+- `--verbose`: print stack traces on failure and Slack debug output
+- `--version` or `-v`: print the CLI version
+
 ### Examples
 
 ```bash
@@ -446,21 +452,34 @@ udara_cli build --client clientA --platform android --slack --slack-channel #bui
 
 The CLI performs the following steps:
 
-1. **Validation & Setup**: Validates client exists and loads environment variables
+1. **Validation & Setup**: Checks the project files, that the client and its env file exist, and that the required keys are set
 2. **Project Configuration**:
-   - Backs up and modifies `pubspec.yaml`
-   - Handles client-specific fonts
-   - Copies client assets
+   - Backs up `pubspec.yaml`, `flutter_launcher_icons.yaml` and the iOS project file
+   - Stages the client env as root `.env`
+   - Handles client-specific fonts and copies client assets
+   - Applies `DEVELOPMENT_TEAM` for iOS builds
 3. **Build Commands**:
    - Runs `flutter pub get`
    - Sets bundle ID and app name
    - Generates launcher icons
    - Creates splash screens
    - Fixes platform-specific issues
-4. **Final Build**: Builds the app with client-specific configuration
-5. **Cleanup**: Restores original project state
+4. **Final Build**: Builds the app and renames the artifact to `<client>_v<version>.<apk|aab|ipa>`
+5. **Cleanup**: Restores the original project state (always runs, even on failure)
 6. **History**: Records the build (success or failure) to `.udara_build_history.json`
-7. **Notifications** (if enabled): Sends build status to Slack
+7. **Notifications** (if enabled): Sends a build summary to Slack, and uploads the APK for APK builds
+
+### Persistent Whitelabeling (`whitelabel`)
+
+`build` always restores the project afterwards. `whitelabel` applies the same branding steps without building. Native changes (app name, bundle id, launcher icons, splash, iOS team) always persist; the staged project files (root `.env`, `assets/branding/<client>/`, `pubspec.yaml`, `flutter_launcher_icons.yaml`) are restored afterwards unless you pass `--keep`, which leaves the project runnable as that client:
+
+```bash
+udara_cli whitelabel --client clientA                # native branding only
+udara_cli whitelabel --client clientA --keep         # or --test --keep
+flutter run --dart-define=CLIENT_ENV=.env
+```
+
+Run `udara_cli clean` to restore the staged files after a `--keep`. Native files rewritten by `whitelabel` stay as they are, so commit or revert them with git as you see fit.
 
 ---
 
@@ -468,7 +487,7 @@ The CLI performs the following steps:
 
 ### Validate Your Setup (`doctor`)
 
-Before running a build, you can check your entire project — or a single client — for common issues: missing dependencies, missing `.env` files, missing required keys, asset paths that don't point to real files, and malformed `fonts.yaml` configuration.
+Before running a build, you can check your entire project — or a single client — for common issues: missing dependencies, missing `.env` files, missing required keys, icon/logo paths that don't resolve to real files in the client folder (or are still the generated placeholders), malformed `fonts.yaml` configuration or font files it references that don't exist, invalid bundle ids, and leftover state from an interrupted build.
 
 ```bash
 # Check the whole project (all clients)
@@ -495,7 +514,7 @@ udara_cli history --client clientA --limit 25
 udara_cli history --clear
 ```
 
-> **Tip:** Add `.udara_build_history.json` to your `.gitignore` — it's local build state, not something you need in version control.
+> **Tip:** `udara_cli setup` adds `.udara_build_history.json` to your `.gitignore` — it's local build state, not something you need in version control.
 
 ### Compare Clients (`diff`)
 
@@ -513,6 +532,22 @@ udara_cli diff --client-a clientA --client-b clientB --all
 ```
 
 ---
+
+## IDE Extensions 🧩
+
+The repo ships two editor integrations that sit on top of the CLI. Both show
+every client with its env files, and let you run (`whitelabel` + `flutter
+run`) or build any client from a click:
+
+- **VS Code** — `extensions/vscode/` ([README](extensions/vscode/README.md)).
+  `npm install && npm run package` produces a `.vsix`; install it with
+  `code --install-extension udara-whitelabel-*.vsix`.
+- **Android Studio / IntelliJ IDEA** — `extensions/jetbrains/`
+  ([README](extensions/jetbrains/README.md)). `./gradlew buildPlugin` produces
+  a zip you can install from disk under **Settings | Plugins**.
+
+They call `udara_cli list-clients --json` and `udara_cli history --json`, which
+are also handy for your own scripts.
 
 ## Commands Reference
 
@@ -535,11 +570,18 @@ udara_cli setup --reset
 ### Build Commands
 
 ```bash
-# Build for a client
+# Build for a client (project restored afterwards)
 udara_cli build --client <name> [options]
 
-# List all available clients
+# Apply a client's native branding; add --keep to leave it runnable as that client
+udara_cli whitelabel --client <name> [--test] [--keep]
+
+# Restore project state (after an interrupted build or a whitelabel) and run flutter clean
+udara_cli clean
+
+# List all available clients with app name and bundle id (add --json for scripts)
 udara_cli list-clients
+udara_cli list-clients --json
 
 # Show help
 udara_cli --help
@@ -603,6 +645,13 @@ udara_cli diff --client-a <name> --client-b <name> --all
 ## Contributing 🤝
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+```bash
+dart pub get
+dart analyze
+dart test          # unit tests for env parsing, pubspec editing, asset sync, cleanup
+dart run bin/udara_cli.dart --help
+```
 
 ---
 

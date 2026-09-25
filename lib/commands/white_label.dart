@@ -1,5 +1,10 @@
+import 'package:path/path.dart' as p;
 import 'package:udara_cli/core/core.dart';
 
+/// Applies a client's native branding (app name, bundle id, icons, splash)
+/// to the project. By default the project files it touches (pubspec, icon
+/// config, root .env, branding assets) are restored afterwards; with
+/// `--keep` they stay applied so the app can be run as that client.
 class WhiteLabelCommand extends UdaraCommand {
   WhiteLabelCommand() {
     argParser
@@ -7,17 +12,26 @@ class WhiteLabelCommand extends UdaraCommand {
         'client',
         abbr: 'c',
         mandatory: true,
-        help: 'The name of the client to build for (e.g., udara).',
+        help: 'The name of the client to whitelabel the project as.',
       )
       ..addFlag(
         'test',
         negatable: false,
-        help: 'Build using the test environment (.env_test).',
+        help: 'Use the test environment (.env_test).',
+      )
+      ..addFlag(
+        'keep',
+        abbr: 'k',
+        negatable: false,
+        help: 'Leave the root .env, branding assets and pubspec changes in '
+            'place so the app can be run as this client '
+            '(flutter run --dart-define=CLIENT_ENV=.env). '
+            'Without it they are restored once the native branding is applied.',
       )
       ..addFlag(
         'slack',
         negatable: false,
-        help: 'Send Slack notifications during build process.',
+        help: 'Send Slack notifications during the process.',
       )
       ..addOption(
         'slack-channel',
@@ -34,42 +48,42 @@ class WhiteLabelCommand extends UdaraCommand {
   final String description =
       '''Whitelabel the app with client-specific assets, app name, bundle ID, branding, custom icons and splash screens.
 
+Native changes (app name, bundle id, launcher icons, splash, iOS team) always
+persist. Project files the CLI stages (root .env, assets/branding/<client>,
+pubspec.yaml, flutter_launcher_icons.yaml) are restored afterwards unless
+--keep is given, in which case the project stays runnable as the client:
+  flutter run --dart-define=CLIENT_ENV=.env
+Run "udara_cli clean" to restore the project files again.
+
   USAGE:
   udara_cli whitelabel --client <CLIENT_NAME> [OPTIONS]
 
   EXAMPLES:
-  # Whitelabel a test version with Slack notifications
-  udara_cli whitelabel --client google --test --slack --slack-channel #dev-builds''';
+  # Apply google's native branding, restore project files afterwards
+  udara_cli whitelabel --client google
 
-  // Services
+  # Brand the project as google (test env) and keep it that way for flutter run
+  udara_cli whitelabel --client google --test --keep''';
+
   late ConfigService config;
   late WhiteLabelService whiteLabel;
   late CleanupService cleanup;
   SlackService? slackService;
 
-  // State
-  String? appNameForCleanup;
-  DateTime? buildStartTime;
-
   @override
   Future<void> run() async {
-    buildStartTime = DateTime.now();
-
-    // 1. Initialize Services
     config = ConfigService(projectDir);
     whiteLabel = WhiteLabelService(projectDir: projectDir, config: config);
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
-    final client = argResults?['client'] as String;
-    final isTest = argResults?['test'] as bool;
-    final enableSlack = argResults?['slack'] as bool;
-
-    String? version;
-    String? errorMessage;
+    final client = argResults!['client'] as String;
+    final isTest = argResults!['test'] as bool;
+    final keep = argResults!['keep'] as bool;
+    final enableSlack = argResults!['slack'] as bool;
 
     if (enableSlack) {
       slackService =
-          await _initializeSlackService(argResults!['slack-channel']);
+          await initializeSlackService(argResults!['slack-channel'] as String);
     }
 
     try {
@@ -78,76 +92,81 @@ class WhiteLabelCommand extends UdaraCommand {
       // -----------------------------------------------------------------------
       Logger.phase('1: Validation & Setup');
 
-      version = await _step('Reading pubspec version', () async {
-        return await config.getPubspecVersion();
-      });
+      checkProjectPrerequisites();
+      final envFile = await resolveClientEnvFile(client, isTest: isTest);
+      final envFileName = p.basename(envFile.path);
 
-      await _notifyBuildStep('Whitelabel Started', client, '', 'started',
+      final version = await runStep(
+          'Reading pubspec version', () => config.getPubspecVersion());
+
+      await notifyBuildStep(slackService,
+          step: 'Whitelabel Started',
+          client: client,
+          platform: '',
+          status: 'started',
           additionalInfo: 'Version: $version');
 
-      final envFileName = isTest ? '.env_test' : '.env';
-      final envFile = File('$projectDir/clients/$client/$envFileName');
-
-      if (!envFile.existsSync()) {
-        throw BuildException(
-          'Environment file missing for client "$client": $envFileName',
-          fix: 'Create the missing file at "${envFile.path}".',
-        );
-      }
-
       final envVars = await config.parseEnvFile(envFile);
-      // await config.copyToRootEnv(envFile);
+      validateEnvVariables(client, envFileName, envVars);
 
-      final appName = envVars['APP_NAME_PROD'];
-      final bundleId = envVars['BUNDLE_ID'];
-      final clientAssetsPath = envVars['ASSETS_PATH'];
-      final appIconPath = envVars['APP_ICON_PATH'];
+      final appName = envVars['APP_NAME_PROD']!;
+      final bundleId = envVars['BUNDLE_ID']!;
+      final clientAssetsPath = envVars['ASSETS_PATH']!;
+      final appIconPath = envVars['APP_ICON_PATH']!;
+      final splashImagePath = (envVars['APP_LOGO_PATH'] ?? '').trim().isEmpty
+          ? appIconPath
+          : envVars['APP_LOGO_PATH']!;
+      final teamId = envVars['DEVELOPMENT_TEAM'];
 
-      _validateEnvVariables(client, envFileName, {
-        'APP_NAME_PROD': appName,
-        'BUNDLE_ID': bundleId,
-        'ASSETS_PATH': clientAssetsPath,
-        'APP_ICON_PATH': appIconPath,
-      });
-
-      appNameForCleanup = appName;
-      Logger.success('Validated configuration for "$client" ($version)');
+      Logger.success(
+          'Validated "$client" ($envFileName): $appName · $bundleId · v$version');
 
       // -----------------------------------------------------------------------
       // PHASE 2: PROJECT CONFIGURATION
       // -----------------------------------------------------------------------
       Logger.phase('2: Project Configuration');
-      await _notifyBuildStep('Project Configuration', client, '', 'started');
+      await notifyBuildStep(slackService,
+          step: 'Project Configuration',
+          client: client,
+          platform: '',
+          status: 'started');
 
-      await _step('Creating backups', () async {
-        await config.createBackup(File('$projectDir/pubspec.yaml'));
-        await config
-            .createBackup(File('$projectDir/flutter_launcher_icons.yaml'));
+      if (!keep) {
+        // The iOS project file is deliberately not backed up: restoring it
+        // would undo the bundle id and team changes that must persist.
+        await runStep('Creating backups', () async {
+          await config.createBackup(File(p.join(projectDir, 'pubspec.yaml')));
+          await config.createBackup(
+              File(p.join(projectDir, 'flutter_launcher_icons.yaml')));
+        });
+      }
 
-        final pbxprojFile =
-            File('$projectDir/ios/Runner.xcodeproj/project.pbxproj');
-        if (pbxprojFile.existsSync()) {
-          await config.createBackup(pbxprojFile);
-        }
-      });
+      await runStep('Staging client environment as root .env',
+          () => config.copyToRootEnv(envFile, trackForCleanup: !keep));
 
-      await _step('Updating asset and launcher configs', () async {
+      await runStep('Updating launcher icon & splash configs', () async {
         await config.updateYamlValue(
-            File('$projectDir/flutter_launcher_icons.yaml'),
+            File(p.join(projectDir, 'flutter_launcher_icons.yaml')),
             ['flutter_launcher_icons', 'image_path'],
-            appIconPath!);
+            appIconPath);
 
-        await config.updateYamlValue(File('$projectDir/pubspec.yaml'),
-            ['splash_master', 'image'], appIconPath);
+        await config.updateYamlValue(File(p.join(projectDir, 'pubspec.yaml')),
+            ['splash_master', 'image'], splashImagePath);
       });
 
-      await _step('Syncing client branding assets & fonts', () async {
-        await whiteLabel.syncBrandingAssets(client, clientAssetsPath!);
-        await whiteLabel.applyClientFonts(clientAssetsPath);
+      await runStep('Syncing client branding assets & fonts', () async {
+        await whiteLabel.syncBrandingAssets(client, clientAssetsPath);
+        await whiteLabel.applyClientFonts(client, clientAssetsPath);
         await config.updatePubspecAssets(
-            clientAssetPath: client,
-            requiredExtraAssets: ['clients/$client/.env']);
+            clientAssetPath: client, requiredExtraAssets: ['.env']);
       });
+
+      if (teamId != null &&
+          teamId.isNotEmpty &&
+          config.pbxprojFile.existsSync()) {
+        await runStep('Applying iOS development team',
+            () async => config.updateDevelopmentTeam(teamId: teamId));
+      }
 
       Logger.success('Project dynamic assets configured successfully');
 
@@ -156,30 +175,50 @@ class WhiteLabelCommand extends UdaraCommand {
       // -----------------------------------------------------------------------
       Logger.phase('3: Running Tools & Generating Assets');
 
-      await _step('Resolving dependencies (pub get)',
+      await runStep('Resolving dependencies (pub get)',
           () => runShell('flutter pub get'));
 
-      await _step(
+      await runStep(
           'Updating Bundle ID ($bundleId)',
           () => runShell(
               'dart run rename setBundleId --targets ios,android --value "$bundleId"'));
 
-      await _step(
+      await runStep(
           'Updating App Name ($appName)',
           () => runShell(
               'dart run rename setAppName --targets ios,android --value "$appName"'));
 
-      await _step('Generating Launcher Icons',
+      await runStep('Generating Launcher Icons',
           () => runShell('dart run flutter_launcher_icons'));
 
-      await _step('Generating Native Splash Screens',
+      await runStep('Generating Native Splash Screens',
           () => runShell('dart run splash_master create'));
 
-      await _step('Cleaning Android icon cache',
+      await runStep('Cleaning Android icon cache',
           () => whiteLabel.cleanAndroidIconCache());
 
       Logger.success('Whitelabeling process completed successfully!');
+
+      await notifyBuildStep(slackService,
+          step: 'Whitelabel Process',
+          client: client,
+          platform: '',
+          status: 'completed');
+
+      Logger.phase('Next Steps');
+      if (keep) {
+        Logger.info('The project is now branded as "$client". Run it with:');
+        Logger.info('  flutter run --dart-define=CLIENT_ENV=.env');
+        Logger.info(
+            'Run "udara_cli clean" to restore the project files again.');
+      } else {
+        Logger.info(
+            'Native branding for "$client" is applied; staged project files are being restored.');
+        Logger.info(
+            'Use "udara_cli whitelabel --client $client --keep" to keep the project runnable as this client.');
+      }
     } catch (e, s) {
+      final String errorMessage;
       if (e is BuildException) {
         errorMessage = e.message;
         Logger.error(e.message,
@@ -190,104 +229,23 @@ class WhiteLabelCommand extends UdaraCommand {
             cause: e, stackTrace: s);
       }
 
-      await _notifyBuildStep('Whitelabel Process', client, '', 'failed',
+      await notifyBuildStep(slackService,
+          step: 'Whitelabel Process',
+          client: client,
+          platform: '',
+          status: 'failed',
           errorMessage: errorMessage);
       rethrow;
     } finally {
-      // -----------------------------------------------------------------------
-      // FINAL PHASE: CLEANUP (ALWAYS RUNS)
-      // -----------------------------------------------------------------------
-      Logger.phase('Cleaning Up Project State');
-
-      try {
-        await cleanup.performFullCleanup(
-          appNameForCleanup: appNameForCleanup,
-          fontsWereChanged: true,
-        );
-        Logger.info('Project restored to default state.');
-      } catch (cleanupError) {
-        Logger.warning('Cleanup encountered an issue: $cleanupError');
+      if (!keep) {
+        Logger.phase('Cleaning Up Project State');
+        try {
+          await cleanup.performFullCleanup();
+        } catch (e) {
+          Logger.warning(
+              'Cleanup encountered an issue: $e. Run "udara_cli clean" to finish restoring the project.');
+        }
       }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // HELPERS
-  // ---------------------------------------------------------------------------
-
-  /// Wraps execution steps in consistent logging and exception catching
-  Future<T> _step<T>(String description, Future<T> Function() action) async {
-    Logger.info('Running: $description...');
-    try {
-      final result = await action();
-      return result;
-    } on BuildException {
-      rethrow;
-    } catch (e, s) {
-      throw BuildException(
-        'Failed step: "$description"',
-        fix: 'Check task logs above or underlying system prerequisites.',
-        originalStackTrace: s,
-      );
-    }
-  }
-
-  /// Validates presence of critical environment variables
-  void _validateEnvVariables(
-      String client, String file, Map<String, String?> vars) {
-    final missing = vars.entries
-        .where((entry) => entry.value == null || entry.value!.trim().isEmpty)
-        .map((entry) => entry.key)
-        .toList();
-
-    if (missing.isNotEmpty) {
-      throw BuildException(
-        'Missing required variables in $file for client "$client": ${missing.join(', ')}',
-        fix: 'Add ${missing.join(', ')} to clients/$client/$file',
-      );
-    }
-  }
-
-  /// Initialize Slack service from stored configuration
-  Future<SlackService?> _initializeSlackService(String channel) async {
-    final slackToken = await ConfigService.getSlackBotToken();
-
-    if (slackToken == null) {
-      Logger.warning(
-          'Slack notifications disabled (not configured). Run "udara_cli setup" to enable.');
-      return null;
-    }
-
-    Logger.info('Slack notifications enabled for channel: $channel');
-    return SlackService(
-      botToken: slackToken,
-      channel: channel,
-      debugMode: Logger.verbose,
-    );
-  }
-
-  /// Helper method to send build step notifications
-  Future<void> _notifyBuildStep(
-    String step,
-    String client,
-    String platform,
-    String status, {
-    String? additionalInfo,
-    String? errorMessage,
-  }) async {
-    if (slackService == null) return;
-
-    try {
-      await slackService!.sendBuildStepNotification(
-        step: step,
-        client: client,
-        platform: platform,
-        status: status,
-        additionalInfo: additionalInfo,
-        errorMessage: errorMessage,
-      );
-    } catch (e) {
-      Logger.warning('Failed to send Slack notification: $e');
     }
   }
 }

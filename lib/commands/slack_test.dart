@@ -5,8 +5,8 @@ class SlackTestCommand extends UdaraCommand {
     argParser.addOption(
       'channel',
       abbr: 'c',
-      help: 'Channel to test (e.g., #general, @username)',
-      defaultsTo: '#general',
+      help: 'Channel to test (e.g., #builds, @username)',
+      defaultsTo: '#builds',
     );
   }
 

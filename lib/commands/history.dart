@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:path/path.dart' as p;
 import 'package:udara_cli/core/core.dart';
 
 /// Displays and manages the project-local build history recorded by
@@ -20,6 +23,11 @@ class HistoryCommand extends UdaraCommand {
         'clear',
         negatable: false,
         help: 'Clear all recorded build history for this project.',
+      )
+      ..addFlag(
+        'json',
+        negatable: false,
+        help: 'Print history entries as JSON.',
       );
   }
 
@@ -52,19 +60,31 @@ Each build (success or failure) is automatically recorded to
   Future<void> run() async {
     config = ConfigService(projectDir);
 
-    final shouldClear = argResults?['clear'] as bool? ?? false;
+    final shouldClear = argResults!['clear'] as bool;
     if (shouldClear) {
       await _clearHistory();
       return;
     }
 
-    final clientFilter = argResults?['client'] as String?;
-    final limit = int.tryParse(argResults?['limit'] as String? ?? '10') ?? 10;
+    final clientFilter = argResults!['client'] as String?;
+    Logger.jsonMode = argResults!['json'] as bool;
+    final limitArg = argResults!['limit'] as String;
+    final limit = int.tryParse(limitArg);
+    if (limit == null || limit <= 0) {
+      throw UsageException(
+          '--limit must be a positive integer (got "$limitArg").', usage);
+    }
 
     var entries = await config.loadBuildHistory();
 
     if (clientFilter != null) {
       entries = entries.where((e) => e['client'] == clientFilter).toList();
+    }
+
+    if (argResults!['json'] as bool) {
+      stdout.writeln(const JsonEncoder.withIndent('  ')
+          .convert(entries.take(limit).toList()));
+      return;
     }
 
     if (entries.isEmpty) {
@@ -97,6 +117,10 @@ Each build (success or failure) is automatically recorded to
 
     if (success) {
       Logger.success(summary);
+      final artifact = entry['artifact'] as String?;
+      if (artifact != null) {
+        Logger.info('    ${p.relative(artifact, from: projectDir)}');
+      }
     } else {
       Logger.error(summary, cause: entry['error'] as String?);
     }

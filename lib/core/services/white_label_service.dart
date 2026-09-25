@@ -50,7 +50,7 @@ class WhiteLabelService {
 
     try {
       if (targetDir.existsSync()) {
-        final markerFile = File(p.join(targetDir.path, _managedMarkerFile));
+        final markerFile = File(p.join(targetDir.path, managedMarkerFile));
 
         if (await markerFile.exists()) {
           await targetDir.delete(recursive: true);
@@ -58,7 +58,7 @@ class WhiteLabelService {
           throw BuildException(
             'Refusing to delete unmanaged branding folder at "${targetDir.path}".',
             fix:
-                'Remove the folder manually or add the $_managedMarkerFile marker if it is managed by udara_cli.',
+                'Remove the folder manually or add the $managedMarkerFile marker if it is managed by udara_cli.',
           );
         }
       }
@@ -66,7 +66,7 @@ class WhiteLabelService {
       await targetDir.create(recursive: true);
 
       await File(
-        p.join(targetDir.path, _managedMarkerFile),
+        p.join(targetDir.path, managedMarkerFile),
       ).writeAsString('managed=true');
 
       Logger.info(
@@ -78,7 +78,7 @@ class WhiteLabelService {
       final copiedFiles = targetDir
           .listSync(recursive: true)
           .whereType<File>()
-          .where((f) => p.basename(f.path) != _managedMarkerFile)
+          .where((f) => p.basename(f.path) != managedMarkerFile)
           .toList();
 
       if (copiedFiles.isEmpty) {
@@ -87,6 +87,7 @@ class WhiteLabelService {
           fix: 'Check ASSETS_PATH and ensure it contains image assets.',
         );
       }
+      Logger.debug('Copied ${copiedFiles.length} asset file(s).');
     } catch (e, s) {
       if (e is BuildException) rethrow;
 
@@ -103,16 +104,38 @@ class WhiteLabelService {
   // FONT MANAGEMENT
   // --------------------------------------------------------------------------
 
+  /// Locates the client's fonts directory. `clients/<client>/fonts` wins,
+  /// then `<ASSETS_PATH>/fonts`, matching what `doctor` validates.
+  Directory? findClientFontsDir(String clientName, String clientAssetsPath) {
+    final candidates = [
+      Directory(p.join(projectDir, 'clients', clientName, 'fonts')),
+      Directory(p.join(projectDir, clientAssetsPath, 'fonts')),
+    ];
+    for (final dir in candidates) {
+      if (dir.existsSync()) return dir;
+    }
+    return null;
+  }
+
   /// Swaps system fonts for client fonts and updates pubspec configuration.
-  Future<void> applyClientFonts(String clientAssetsPath) async {
-    final clientFontsDir = Directory(
-      p.join(projectDir, clientAssetsPath, 'fonts'),
-    );
+  /// Returns true when fonts were changed and need restoring on cleanup.
+  Future<bool> applyClientFonts(
+      String clientName, String clientAssetsPath) async {
+    final clientFontsDir = findClientFontsDir(clientName, clientAssetsPath);
     final targetFontsDir = Directory(p.join(projectDir, 'assets', 'fonts'));
 
-    if (!clientFontsDir.existsSync()) {
+    if (clientFontsDir == null) {
       Logger.info('No custom fonts found for this client. Skipping.');
-      return;
+      return false;
+    }
+
+    final hasFontFiles = clientFontsDir
+        .listSync()
+        .whereType<File>()
+        .any((f) => !p.basename(f.path).startsWith('.'));
+    if (!hasFontFiles) {
+      Logger.info('Client fonts directory is empty. Skipping.');
+      return false;
     }
 
     final backupDir = Directory('${targetFontsDir.path}.bak');
@@ -150,40 +173,17 @@ class WhiteLabelService {
           originalStackTrace: s,
         );
       }
+    } else {
+      Logger.warning(
+          'Fonts copied but no fonts.yaml found in "${clientFontsDir.path}"; '
+          'pubspec font families were not updated.');
     }
+    return true;
   }
 
   // --------------------------------------------------------------------------
   // PLATFORM SPECIFIC (IOS/ANDROID)
   // --------------------------------------------------------------------------
-
-  /*   Future<void> patchIosSplash(String appName) async {
-    final storyboardFile = File(
-      p.join(
-          projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
-    );
-
-    if (!storyboardFile.existsSync()) return;
-
-    Logger.info('Patching iOS LaunchScreen for $appName...');
-    try {
-      var content = await storyboardFile.readAsString();
-
-      content = content.replaceAll('LaunchImage', 'LaunchImage$appName');
-
-      // De-duplicate lines (common issue with splash_master)
-      final lines = content.split('\n');
-      final uniqueContent = lines.toSet().toList().join('\n');
-
-      await storyboardFile.writeAsString(uniqueContent);
-    } catch (e, s) {
-      throw BuildException(
-        'Failed to patch iOS LaunchScreen storyboard.',
-        fix: 'Check write permissions for "${storyboardFile.path}".',
-        originalStackTrace: s,
-      );
-    }
-  } */
 
   /// Fixes a specific Android adaptive icon bug.
   Future<void> cleanAndroidIconCache() async {
@@ -213,27 +213,24 @@ class WhiteLabelService {
   // BUILD ARTIFACTS
   // --------------------------------------------------------------------------
 
-  /// Renames the final .apk or .aab to include client name and version.
+  /// Renames the final .apk, .aab or .ipa to include client name and version.
   Future<File> renameOutput({
     required String clientName,
     required String version,
-    required String type, // 'apk' or 'aab'
+    required String type, // 'apk', 'aab' or 'ipa'
   }) async {
-    final subPath = type == 'apk'
-        ? 'app/outputs/apk/release/app-release.apk'
-        : 'app/outputs/bundle/release/app-release.aab';
+    final buildFile = _locateBuildArtifact(type);
 
-    final buildFile = File(p.join(projectDir, 'build', subPath));
-
-    if (!buildFile.existsSync()) {
+    if (buildFile == null) {
       throw BuildException(
-        'Build artifact not found at "${buildFile.path}"',
+        'Build artifact (.$type) not found under "${p.join(projectDir, 'build')}"',
         fix:
             'Verify the Flutter build succeeded and created the expected output.',
       );
     }
 
-    final newName = '${clientName}_v${version.replaceAll('+', '_')}.$type';
+    final safeVersion = version.replaceAll('+', '_');
+    final newName = '${clientName}_v$safeVersion.$type';
     final destinationPath = p.join(buildFile.parent.path, newName);
 
     Logger.info('Renaming build artifact to: $newName');
@@ -249,11 +246,47 @@ class WhiteLabelService {
     }
   }
 
+  File? _locateBuildArtifact(String type) {
+    switch (type) {
+      case 'apk':
+        return _existing(p.join(projectDir, 'build', 'app', 'outputs', 'apk',
+            'release', 'app-release.apk'));
+      case 'aab':
+        return _existing(p.join(projectDir, 'build', 'app', 'outputs', 'bundle',
+            'release', 'app-release.aab'));
+      case 'ipa':
+        final ipaDir = Directory(p.join(projectDir, 'build', 'ios', 'ipa'));
+        if (!ipaDir.existsSync()) return null;
+        final ipas = ipaDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.ipa'))
+            .toList()
+          ..sort(
+              (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+        return ipas.isEmpty ? null : ipas.first;
+      default:
+        return null;
+    }
+  }
+
+  File? _existing(String path) {
+    final file = File(path);
+    return file.existsSync() ? file : null;
+  }
+
   // --------------------------------------------------------------------------
   // PRIVATE HELPERS
   // --------------------------------------------------------------------------
 
-  static const _managedMarkerFile = '.udara_managed';
+  /// Marker written into branding folders the CLI owns, so cleanup never
+  /// deletes a folder a developer created by hand.
+  static const managedMarkerFile = '.udara_managed';
+
+  /// The client whose branding and env act as the fallback for plain
+  /// `flutter run`; its branding folder is never removed by cleanup.
+  static const defaultClientName = 'default';
+
   Future<void> _cleanupOtherClientBrandingFolders(String activeClient) async {
     final clientsDir = Directory(p.join(projectDir, 'clients'));
     final brandingRoot = Directory(p.join(projectDir, 'assets', 'branding'));
@@ -271,12 +304,12 @@ class WhiteLabelService {
     }
 
     for (final client in clientNames) {
-      if (client == activeClient) continue;
+      if (client == activeClient || client == defaultClientName) continue;
 
       final clientBrandingDir = Directory(p.join(brandingRoot.path, client));
 
       final markerFile = File(
-        p.join(clientBrandingDir.path, _managedMarkerFile),
+        p.join(clientBrandingDir.path, managedMarkerFile),
       );
 
       if (await clientBrandingDir.exists() && await markerFile.exists()) {
@@ -300,7 +333,8 @@ class WhiteLabelService {
 
     const defaultContent = '''
 # Udara CLI ignore file
-# Auto-generated - you can edit freely
+# Glob patterns (relative to the client assets folder) that must never be
+# copied into the app bundle. Auto-generated - you can edit freely.
 
 service_account.json
 *.pem
@@ -340,11 +374,15 @@ service_account.json
   ) async {
     await for (final entity in source.list(recursive: false)) {
       final relativePath = p.relative(entity.path, from: root.path);
+      final baseName = p.basename(entity.path);
 
-      final shouldSkip = globs.any((glob) => glob.matches(relativePath));
+      // Patterns match the path relative to the assets root, or the bare
+      // file name, so `*.jks` also catches `keys/upload.jks`.
+      final shouldSkip = globs
+          .any((glob) => glob.matches(relativePath) || glob.matches(baseName));
 
       if (shouldSkip) {
-        Logger.info('Skipping ignored asset: $relativePath');
+        Logger.debug('Skipping ignored asset: $relativePath');
         continue;
       }
 
@@ -392,21 +430,17 @@ class CleanupService {
 
   CleanupService({required this.projectDir, required this.config});
 
-  /// Reverts all temporary changes made during the build process.
-  Future<void> performFullCleanup({
-    String? appNameForCleanup,
-    bool fontsWereChanged = false,
-    bool isWhiteLabel = false,
-  }) async {
+  /// Reverts all temporary changes made during the build process:
+  /// restores backed-up files, removes files the CLI generated, deletes
+  /// managed branding folders and puts the original fonts back.
+  Future<void> performFullCleanup() async {
     Logger.info('Starting project cleanup...');
 
     try {
-      await _restoreBackedUpFiles(!isWhiteLabel);
+      await _restoreBackedUpFiles();
+      await config.removeCreatedFiles();
       await _removeTempFiles();
-
-      if (fontsWereChanged) {
-        await _restoreDefaultFonts();
-      }
+      await _restoreDefaultFonts();
 
       Logger.success('Project restored to original state.');
     } finally {
@@ -419,15 +453,17 @@ class CleanupService {
   // RESTORATION LOGIC
   // --------------------------------------------------------------------------
 
-  Future<void> _restoreBackedUpFiles(bool restorePbxproj) async {
+  Future<void> _restoreBackedUpFiles() async {
     final filesToRestore = [
       'pubspec.yaml',
       'flutter_launcher_icons.yaml',
-      if (restorePbxproj) p.join('ios', 'Runner.xcodeproj', 'project.pbxproj'),
+      '.env',
+      p.join('ios', 'Runner.xcodeproj', 'project.pbxproj'),
     ];
 
     for (final fileName in filesToRestore) {
       final file = File(p.join(projectDir, fileName));
+      if (!config.hasBackup(file)) continue;
 
       Logger.info('Restoring $fileName...');
 
@@ -446,9 +482,14 @@ class CleanupService {
       await for (final entity in brandingRoot.list()) {
         if (entity is! Directory) continue;
 
-        if (p.basename(entity.path) == 'default') continue;
+        // The default client's branding is the fallback for plain
+        // `flutter run`, so it is left in place.
+        if (p.basename(entity.path) == WhiteLabelService.defaultClientName) {
+          continue;
+        }
 
-        final marker = File(p.join(entity.path, '.udara_managed'));
+        final marker =
+            File(p.join(entity.path, WhiteLabelService.managedMarkerFile));
 
         if (await marker.exists()) {
           Logger.info('Removing temporary branding folder: ${entity.path}');
@@ -458,30 +499,12 @@ class CleanupService {
     }
   }
 
-  /*   Future<void> _revertIosStoryboard(String appName) async {
-    final storyboardFile = File(
-      p.join(
-          projectDir, 'ios', 'Runner', 'Base.lproj', 'LaunchScreen.storyboard'),
-    );
-
-    if (storyboardFile.existsSync()) {
-      Logger.info('Reverting iOS LaunchScreen changes...');
-      try {
-        var content = await storyboardFile.readAsString();
-        content = content.replaceAll('LaunchImage$appName', 'LaunchImage');
-        await storyboardFile.writeAsString(content);
-      } catch (e) {
-        Logger.warning('Failed to revert iOS LaunchScreen storyboard: $e');
-      }
-    }
-  } */
-
   Future<void> _restoreDefaultFonts() async {
     final targetFontsDir = Directory(p.join(projectDir, 'assets', 'fonts'));
     final backupFontsDir = Directory('${targetFontsDir.path}.bak');
 
     if (backupFontsDir.existsSync()) {
-      Logger.info('Restoring default system fonts...');
+      Logger.info('Restoring default fonts...');
       try {
         if (targetFontsDir.existsSync()) {
           await targetFontsDir.delete(recursive: true);
@@ -523,6 +546,7 @@ const _defaultExcludedPatterns = [
   '.udara_build_history.json',
   '.DS_Store',
   '**/.DS_Store',
+  'README.md',
   '.env',
   '.env_test',
   '.env.*',

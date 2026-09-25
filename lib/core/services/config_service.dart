@@ -7,6 +7,10 @@ import '../core.dart';
 class ConfigService {
   static const String _configFileName = '.udara_cli_config.json';
 
+  /// The env file the app loads at runtime when nothing is passed via
+  /// `--dart-define=CLIENT_ENV`. Registered as an asset by `setup`.
+  static const String defaultClientEnvAsset = 'clients/default/.env';
+
   final String projectDir;
 
   ConfigService(this.projectDir);
@@ -16,28 +20,18 @@ class ConfigService {
   // --------------------------------------------------------------------------
 
   /// Parses an environment file into a Map.
+  ///
+  /// Supports `KEY=VALUE`, `export KEY=VALUE`, single or double quoted
+  /// values, and inline `# comments` after an unquoted value. Malformed
+  /// lines are reported as warnings and skipped.
   Future<Map<String, String>> parseEnvFile(File envFile) async {
     if (!envFile.existsSync()) {
       return {};
     }
 
     try {
-      final envVars = <String, String>{};
-      final lines = await envFile.readAsLines();
-
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-
-        final parts = trimmed.split('=');
-        if (parts.length >= 2) {
-          final key = parts[0].trim();
-          final value = parts.sublist(1).join('=').trim();
-          // Remove surrounding quotes
-          envVars[key] = value.replaceAll(RegExp(r'^"|"$'), '');
-        }
-      }
-      return envVars;
+      return parseEnvContent(await envFile.readAsString(),
+          sourceName: envFile.path);
     } catch (e, s) {
       throw BuildException(
         'Failed to read environment file at "${envFile.path}"',
@@ -48,8 +42,65 @@ class ConfigService {
     }
   }
 
-  /// Copies a client env file to the root .env for the Flutter build.
-  Future<File> copyToRootEnv(File sourceEnv, {bool isTest = false}) async {
+  /// Pure parser behind [parseEnvFile]; exposed for testing.
+  static Map<String, String> parseEnvContent(String content,
+      {String sourceName = '.env'}) {
+    final envVars = <String, String>{};
+    final lines = const LineSplitter().convert(content);
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (line.isEmpty || line.startsWith('#')) continue;
+
+      if (line.startsWith('export ')) {
+        line = line.substring('export '.length).trim();
+      }
+
+      final eq = line.indexOf('=');
+      if (eq <= 0) {
+        Logger.warning(
+            '$sourceName:${i + 1}: ignoring malformed line (expected KEY=VALUE).');
+        continue;
+      }
+
+      final key = line.substring(0, eq).trim();
+      if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(key)) {
+        Logger.warning('$sourceName:${i + 1}: ignoring invalid key "$key".');
+        continue;
+      }
+
+      envVars[key] = _parseEnvValue(line.substring(eq + 1).trim());
+    }
+    return envVars;
+  }
+
+  static String _parseEnvValue(String raw) {
+    if (raw.isEmpty) return '';
+
+    final quote = raw[0];
+    if (quote == '"' || quote == "'") {
+      final closing = raw.indexOf(quote, 1);
+      if (closing > 0) {
+        // Anything after the closing quote (e.g. a trailing comment) is
+        // ignored, which is what dotenv implementations do.
+        return raw.substring(1, closing);
+      }
+      // Unterminated quote: strip the opening quote and keep the rest.
+      return raw.substring(1);
+    }
+
+    final hash = raw.indexOf(' #');
+    final value = hash >= 0 ? raw.substring(0, hash) : raw;
+    return value.trim();
+  }
+
+  /// Copies a client env file to the root `.env` for the Flutter build.
+  ///
+  /// When [trackForCleanup] is true, an existing root `.env` is backed up so
+  /// cleanup can restore it, and a marker is recorded when no root `.env`
+  /// existed so cleanup removes the copy again.
+  Future<File> copyToRootEnv(File sourceEnv,
+      {bool trackForCleanup = true}) async {
     if (!sourceEnv.existsSync()) {
       throw BuildException(
         'Source environment file missing at "${sourceEnv.path}"',
@@ -58,13 +109,21 @@ class ConfigService {
       );
     }
 
-    final targetPath = p.join(projectDir, '.env');
+    final target = File(p.join(projectDir, '.env'));
     try {
-      return await sourceEnv.copy(targetPath);
+      if (trackForCleanup) {
+        if (target.existsSync()) {
+          await createBackup(target);
+        } else {
+          await markCreated(target);
+        }
+      }
+      return await sourceEnv.copy(target.path);
     } catch (e, s) {
+      if (e is BuildException) rethrow;
       throw BuildException(
         'Failed to copy environment file to root directory.',
-        fix: 'Check write permissions for "$targetPath".',
+        fix: 'Check write permissions for "${target.path}".',
         originalStackTrace: s,
       );
     }
@@ -96,7 +155,9 @@ class ConfigService {
     }
   }
 
-  /// Specifically handles the complex 'assets' list in pubspec.yaml
+  /// Rewrites the `flutter.assets` list in pubspec.yaml so that exactly one
+  /// branding folder (the active client's) and the runtime env file are
+  /// registered. The default client's fallback env entry is preserved.
   Future<void> updatePubspecAssets({
     required String clientAssetPath,
     required List<String> requiredExtraAssets,
@@ -118,15 +179,14 @@ class ConfigService {
       final currentAssets =
           (yaml['flutter']?['assets'] as YamlList?)?.toList() ?? [];
 
-      // Filter out old branding paths and specific env paths
-      final newAssets = currentAssets.where((a) {
-        final s = a.toString();
-        return !s.contains('assets/branding/') && !s.contains('.env');
-      }).toList();
+      final newAssets = currentAssets
+          .map((a) => a.toString())
+          .where((asset) => !_isManagedAsset(asset))
+          .toList();
 
-      // Add new entries
-      newAssets.add('assets/branding/$clientAssetPath/');
-      for (var asset in requiredExtraAssets) {
+      final branding = 'assets/branding/$clientAssetPath/';
+      if (!newAssets.contains(branding)) newAssets.add(branding);
+      for (final asset in requiredExtraAssets) {
         if (!newAssets.contains(asset)) newAssets.add(asset);
       }
 
@@ -140,6 +200,17 @@ class ConfigService {
         originalStackTrace: s,
       );
     }
+  }
+
+  /// Asset entries the CLI owns and may replace: branding folders and env
+  /// files, except the default client's fallback env.
+  static bool _isManagedAsset(String asset) {
+    if (asset == defaultClientEnvAsset) return false;
+    if (asset.startsWith('assets/branding/')) return true;
+    final name = p.basename(asset);
+    return name == '.env' ||
+        name.startsWith('.env_') ||
+        name.startsWith('.env.');
   }
 
   Future<void> updatePubspecFonts(List<dynamic> fontList) async {
@@ -165,6 +236,8 @@ class ConfigService {
     }
   }
 
+  /// Registers the default client's env file as a Flutter asset so the app
+  /// can load it when no `CLIENT_ENV` is passed.
   Future<void> addInitialAssetEntries() async {
     final file = File(p.join(projectDir, 'pubspec.yaml'));
     if (!file.existsSync()) return;
@@ -177,16 +250,40 @@ class ConfigService {
       final flutter = yaml['flutter'] as YamlMap?;
       final currentAssets = (flutter?['assets'] as YamlList?)?.toList() ?? [];
 
-      const defaultEnv = 'clients/default/.env';
-
-      if (!currentAssets.contains(defaultEnv)) {
-        currentAssets.add(defaultEnv);
+      if (!currentAssets.contains(defaultClientEnvAsset)) {
+        currentAssets.add(defaultClientEnvAsset);
         editor.update(['flutter', 'assets'], currentAssets);
         await file.writeAsString(editor.toString());
-        Logger.success('Added default .env to pubspec assets.');
+        Logger.success('Added $defaultClientEnvAsset to pubspec assets.');
       }
     } catch (e) {
       Logger.warning('Failed to add initial asset entries to pubspec.yaml: $e');
+    }
+  }
+
+  /// Appends [entries] to the project's .gitignore when they are not already
+  /// present. Creates the file if needed.
+  Future<void> ensureGitignoreEntries(List<String> entries) async {
+    final file = File(p.join(projectDir, '.gitignore'));
+    try {
+      final existing =
+          file.existsSync() ? await file.readAsLines() : const <String>[];
+      final present = existing.map((l) => l.trim()).toSet();
+      final missing = entries.where((e) => !present.contains(e)).toList();
+      if (missing.isEmpty) return;
+
+      final buffer = StringBuffer();
+      if (existing.isNotEmpty && existing.last.trim().isNotEmpty) {
+        buffer.writeln();
+      }
+      buffer.writeln('# Udara CLI local state');
+      for (final entry in missing) {
+        buffer.writeln(entry);
+      }
+      await file.writeAsString(buffer.toString(), mode: FileMode.append);
+      Logger.success('Added ${missing.join(', ')} to .gitignore');
+    } catch (e) {
+      Logger.warning('Could not update .gitignore: $e');
     }
   }
 
@@ -194,10 +291,11 @@ class ConfigService {
   // BACKUP & RESTORE
   // --------------------------------------------------------------------------
 
-  Directory get _backupRoot =>
-      Directory(p.join(projectDir, '.udara', 'backups'));
+  Directory get _udaraDir => Directory(p.join(projectDir, '.udara'));
+  Directory get _backupRoot => Directory(p.join(_udaraDir.path, 'backups'));
+  Directory get _createdRoot => Directory(p.join(_udaraDir.path, 'created'));
 
-  /// Creates a backup of a file (.bak extension). Returns the backup file.
+  /// Creates a backup of a file under `.udara/backups`. Returns the backup.
   Future<File> createBackup(File file) async {
     if (!file.existsSync()) {
       throw BuildException(
@@ -223,7 +321,14 @@ class ConfigService {
     }
   }
 
-  /// Restores a file from its .bak version and deletes the backup.
+  /// Whether a backup exists for [file].
+  bool hasBackup(File file) {
+    final relativePath = p.relative(file.path, from: projectDir);
+    return File(p.join(_backupRoot.path, relativePath)).existsSync();
+  }
+
+  /// Restores a file from its backup and deletes the backup. No-op when no
+  /// backup exists.
   Future<void> restoreBackup(File originalFile) async {
     final relativePath = p.relative(originalFile.path, from: projectDir);
 
@@ -234,6 +339,7 @@ class ConfigService {
     }
 
     try {
+      await originalFile.parent.create(recursive: true);
       await backup.copy(originalFile.path);
       await backup.delete();
     } catch (e, s) {
@@ -246,9 +352,34 @@ class ConfigService {
     }
   }
 
+  /// Records that the CLI created [file] from scratch, so cleanup can remove
+  /// it instead of restoring a backup.
+  Future<void> markCreated(File file) async {
+    final relativePath = p.relative(file.path, from: projectDir);
+    final marker = File(p.join(_createdRoot.path, relativePath));
+    await marker.parent.create(recursive: true);
+    await marker.writeAsString('created=true');
+  }
+
+  /// Removes every file recorded via [markCreated] and clears the markers.
+  Future<void> removeCreatedFiles() async {
+    if (!await _createdRoot.exists()) return;
+
+    await for (final entity in _createdRoot.list(recursive: true)) {
+      if (entity is! File) continue;
+      final relativePath = p.relative(entity.path, from: _createdRoot.path);
+      final created = File(p.join(projectDir, relativePath));
+      if (await created.exists()) {
+        Logger.info('Removing generated file: $relativePath');
+        await created.delete();
+      }
+    }
+    await _createdRoot.delete(recursive: true);
+  }
+
   Future<void> clearBackups() async {
-    if (await _backupRoot.exists()) {
-      await _backupRoot.delete(recursive: true);
+    if (await _udaraDir.exists()) {
+      await _udaraDir.delete(recursive: true);
     }
   }
 
@@ -278,25 +409,27 @@ class ConfigService {
     }
   }
 
-  void updateDevelopmentTeam(String projectRoot, {String? teamId}) {
-    if (teamId == null) return;
-    final pbxprojFile = File(
-      '$projectRoot/ios/Runner.xcodeproj/project.pbxproj',
-    );
+  File get pbxprojFile =>
+      File(p.join(projectDir, 'ios', 'Runner.xcodeproj', 'project.pbxproj'));
 
-    if (!pbxprojFile.existsSync()) {
+  /// Rewrites every `DEVELOPMENT_TEAM` entry in the iOS project file.
+  void updateDevelopmentTeam({required String teamId}) {
+    final file = pbxprojFile;
+
+    if (!file.existsSync()) {
       throw BuildException(
-        'project.pbxproj not found at "${pbxprojFile.path}"',
+        'project.pbxproj not found at "${file.path}"',
         fix: 'Ensure the iOS project directory is intact.',
       );
     }
 
     try {
-      final contents = pbxprojFile.readAsStringSync();
+      final contents = file.readAsStringSync();
       final pattern = RegExp(r'DEVELOPMENT_TEAM = [^;]+;');
 
       if (!pattern.hasMatch(contents)) {
-        Logger.warning('DEVELOPMENT_TEAM key not found in project.pbxproj');
+        Logger.warning(
+            'DEVELOPMENT_TEAM key not found in project.pbxproj; leaving signing untouched.');
         return;
       }
 
@@ -305,11 +438,12 @@ class ConfigService {
         'DEVELOPMENT_TEAM = $teamId;',
       );
 
-      pbxprojFile.writeAsStringSync(updated);
+      file.writeAsStringSync(updated);
+      Logger.info('Set iOS DEVELOPMENT_TEAM to $teamId');
     } catch (e, s) {
       throw BuildException(
         'Failed to update iOS DEVELOPMENT_TEAM in project.pbxproj',
-        fix: 'Check file permissions for "${pbxprojFile.path}".',
+        fix: 'Check file permissions for "${file.path}".',
         originalStackTrace: s,
       );
     }
@@ -319,10 +453,10 @@ class ConfigService {
   // BUILD HISTORY (PROJECT-SCOPED)
   // --------------------------------------------------------------------------
 
-  static const String _historyFileName = '.udara_build_history.json';
+  static const String historyFileName = '.udara_build_history.json';
   static const int _maxHistoryEntries = 50;
 
-  String get _historyFilePath => p.join(projectDir, _historyFileName);
+  String get _historyFilePath => p.join(projectDir, historyFileName);
 
   /// Appends a build record to the project-local history file, keeping only
   /// the most recent [_maxHistoryEntries]. Newest entries are stored first.

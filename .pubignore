@@ -9,3 +9,5 @@ clients/
 .idea/
 .vscode/
 .dart_tool/
+# IDE extensions live in the repo but are not part of the Dart package
+extensions/

@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 import 'package:udara_cli/core/core.dart';
 
 class BuildCommand extends UdaraCommand {
@@ -21,7 +22,8 @@ class BuildCommand extends UdaraCommand {
         abbr: 't',
         defaultsTo: 'aab',
         allowed: ['aab', 'apk'],
-        help: 'The Android build type.',
+        help:
+            'The Android build type (ignored for iOS, which always builds an IPA).',
       )
       ..addFlag(
         'test',
@@ -52,14 +54,17 @@ class BuildCommand extends UdaraCommand {
   udara_cli build --client <CLIENT_NAME> [OPTIONS]
 
 📋 EXAMPLES:
-  # Build Android APK for 'apple' client (production)
+  # Build Android AAB for 'apple' client (production)
   udara_cli build --client apple
 
-  # Build test version with Slack notifications
-  udara_cli build --client google --test --slack --slack-channel #dev-builds
+  # Build an APK with the test environment and Slack notifications
+  udara_cli build --client google --type apk --test --slack --slack-channel #dev-builds
 
   # Build iOS version
-  udara_cli build --client microsoft --platform ios''';
+  udara_cli build --client microsoft --platform ios
+
+The project is always restored to its original state afterwards, even when
+the build fails. Every run is recorded in .udara_build_history.json.''';
 
   // Services
   late ConfigService config;
@@ -67,33 +72,29 @@ class BuildCommand extends UdaraCommand {
   late CleanupService cleanup;
   SlackService? slackService;
 
-  // State
-  String? appNameForCleanup;
-  DateTime? buildStartTime;
-  File? builtFile;
-
   @override
   Future<void> run() async {
-    buildStartTime = DateTime.now();
+    final buildStartTime = DateTime.now();
 
-    // 1. Initialize Services
     config = ConfigService(projectDir);
     whiteLabel = WhiteLabelService(projectDir: projectDir, config: config);
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
-    final client = argResults?['client'] as String;
-    final platform = argResults?['platform'] as String;
-    final type = argResults?['type'] as String;
-    final isTest = argResults?['test'] as bool;
-    final enableSlack = argResults?['slack'] as bool;
+    final client = argResults!['client'] as String;
+    final platform = argResults!['platform'] as String;
+    final isTest = argResults!['test'] as bool;
+    final enableSlack = argResults!['slack'] as bool;
+    // iOS always produces an IPA; the --type flag only applies to Android.
+    final type = platform == 'ios' ? 'ipa' : argResults!['type'] as String;
 
     String? version;
     String? errorMessage;
-    bool buildSuccess = false;
+    File? builtFile;
+    var buildSuccess = false;
 
     if (enableSlack) {
       slackService =
-          await _initializeSlackService(argResults!['slack-channel']);
+          await initializeSlackService(argResults!['slack-channel'] as String);
     }
 
     try {
@@ -102,77 +103,77 @@ class BuildCommand extends UdaraCommand {
       // -----------------------------------------------------------------------
       Logger.phase('1: Validation & Setup');
 
-      version = await _step('Reading pubspec version', () async {
-        return await config.getPubspecVersion();
-      });
+      checkProjectPrerequisites();
+      final envFile = await resolveClientEnvFile(client, isTest: isTest);
+      final envFileName = p.basename(envFile.path);
 
-      await _notifyBuildStep('Build Started', client, platform, 'started',
+      version = await runStep(
+          'Reading pubspec version', () => config.getPubspecVersion());
+
+      await notifyBuildStep(slackService,
+          step: 'Build Started',
+          client: client,
+          platform: platform,
+          status: 'started',
           additionalInfo: 'Version: $version, Type: $type');
 
-      final envFileName = isTest ? '.env_test' : '.env';
-      final envFile = File('$projectDir/clients/$client/$envFileName');
-
-      if (!envFile.existsSync()) {
-        throw BuildException(
-          'Environment file missing for client "$client": $envFileName',
-          fix: 'Create the missing file at "${envFile.path}".',
-        );
-      }
-
       final envVars = await config.parseEnvFile(envFile);
-      await config.copyToRootEnv(envFile);
+      validateEnvVariables(client, envFileName, envVars);
 
-      final appName = envVars['APP_NAME_PROD'];
-      final bundleId = envVars['BUNDLE_ID'];
-      final clientAssetsPath = envVars['ASSETS_PATH'];
-      final appIconPath = envVars['APP_ICON_PATH'];
+      final appName = envVars['APP_NAME_PROD']!;
+      final bundleId = envVars['BUNDLE_ID']!;
+      final clientAssetsPath = envVars['ASSETS_PATH']!;
+      final appIconPath = envVars['APP_ICON_PATH']!;
+      final splashImagePath =
+          _firstNonEmpty([envVars['APP_LOGO_PATH'], envVars['APP_ICON_PATH']])!;
       final teamId = envVars['DEVELOPMENT_TEAM'];
 
-      _validateEnvVariables(client, envFileName, {
-        'APP_NAME_PROD': appName,
-        'BUNDLE_ID': bundleId,
-        'ASSETS_PATH': clientAssetsPath,
-        'APP_ICON_PATH': appIconPath,
-      });
-
-      appNameForCleanup = appName;
-      Logger.success('Validated configuration for "$client" ($version)');
+      Logger.success(
+          'Validated "$client" ($envFileName): $appName · $bundleId · v$version');
 
       // -----------------------------------------------------------------------
       // PHASE 2: PROJECT CONFIGURATION
       // -----------------------------------------------------------------------
       Logger.phase('2: Project Configuration');
-      await _notifyBuildStep(
-          'Project Configuration', client, platform, 'started');
+      await notifyBuildStep(slackService,
+          step: 'Project Configuration',
+          client: client,
+          platform: platform,
+          status: 'started');
 
-      await _step('Creating backups', () async {
-        await config.createBackup(File('$projectDir/pubspec.yaml'));
-        await config
-            .createBackup(File('$projectDir/flutter_launcher_icons.yaml'));
-
-        final pbxprojFile =
-            File('$projectDir/ios/Runner.xcodeproj/project.pbxproj');
-        if (pbxprojFile.existsSync()) {
-          await config.createBackup(pbxprojFile);
+      await runStep('Creating backups', () async {
+        await config.createBackup(File(p.join(projectDir, 'pubspec.yaml')));
+        await config.createBackup(
+            File(p.join(projectDir, 'flutter_launcher_icons.yaml')));
+        if (config.pbxprojFile.existsSync()) {
+          await config.createBackup(config.pbxprojFile);
         }
       });
 
-      await _step('Updating asset and launcher configs', () async {
-        await config.updateYamlValue(
-            File('$projectDir/flutter_launcher_icons.yaml'),
-            ['flutter_launcher_icons', 'image_path'],
-            appIconPath!);
+      await runStep('Staging client environment as root .env',
+          () => config.copyToRootEnv(envFile));
 
-        await config.updateYamlValue(File('$projectDir/pubspec.yaml'),
-            ['splash_master', 'image'], appIconPath);
+      await runStep('Updating launcher icon & splash configs', () async {
+        await config.updateYamlValue(
+            File(p.join(projectDir, 'flutter_launcher_icons.yaml')),
+            ['flutter_launcher_icons', 'image_path'],
+            appIconPath);
+
+        await config.updateYamlValue(File(p.join(projectDir, 'pubspec.yaml')),
+            ['splash_master', 'image'], splashImagePath);
       });
 
-      await _step('Syncing client branding assets & fonts', () async {
-        await whiteLabel.syncBrandingAssets(client, clientAssetsPath!);
-        await whiteLabel.applyClientFonts(clientAssetsPath);
+      await runStep('Syncing client branding assets & fonts', () async {
+        await whiteLabel.syncBrandingAssets(client, clientAssetsPath);
+        await whiteLabel.applyClientFonts(client, clientAssetsPath);
         await config.updatePubspecAssets(
             clientAssetPath: client, requiredExtraAssets: ['.env']);
       });
+
+      if (platform == 'ios' && teamId != null && teamId.isNotEmpty) {
+        await runStep('Applying iOS development team',
+            () async => config.updateDevelopmentTeam(teamId: teamId));
+      }
 
       Logger.success('Project assets configured successfully');
 
@@ -181,55 +182,46 @@ class BuildCommand extends UdaraCommand {
       // -----------------------------------------------------------------------
       Logger.phase('3: Running Build Commands');
 
-      await _step('Resolving dependencies (pub get)',
+      await runStep('Resolving dependencies (pub get)',
           () => runShell('flutter pub get'));
 
-      await _step(
+      await runStep(
           'Updating Bundle ID ($bundleId)',
           () => runShell(
               'dart run rename setBundleId --targets ios,android --value "$bundleId"'));
 
-      await _step(
+      await runStep(
           'Updating App Name ($appName)',
           () => runShell(
               'dart run rename setAppName --targets ios,android --value "$appName"'));
 
-      await _step('Generating Launcher Icons',
+      await runStep('Generating Launcher Icons',
           () => runShell('dart run flutter_launcher_icons'));
 
-      await _step('Generating Native Splash Screens',
+      await runStep('Generating Native Splash Screens',
           () => runShell('dart run splash_master create'));
 
-      await _step('Applying OS-specific splash & icon patches', () async {
-        //await whiteLabel.patchIosSplash(appName!);
-        await whiteLabel.cleanAndroidIconCache();
-      });
+      await runStep('Applying OS-specific splash & icon patches',
+          () => whiteLabel.cleanAndroidIconCache());
 
       // -----------------------------------------------------------------------
       // PHASE 4: THE FINAL BUILD
       // -----------------------------------------------------------------------
       Logger.phase('4: Building the App');
 
-      if (platform == 'android') {
-        final buildType = (type == 'aab') ? 'aab' : 'apk --release';
-        await _step(
-            'Building Android ($buildType)',
-            () => runShell(
-                'flutter build $buildType --dart-define=CLIENT_ENV=".env"'));
+      final buildCommand = switch (type) {
+        'apk' => 'flutter build apk --release',
+        'aab' => 'flutter build appbundle --release',
+        _ => 'flutter build ipa',
+      };
 
-        builtFile = await _step('Renaming Android artifact', () async {
-          return await whiteLabel.renameOutput(
-              clientName: client, version: version ?? '1.0.0+1', type: type);
-        });
-      } else {
-        if (teamId != null) {
-          config.updateDevelopmentTeam(projectDir, teamId: teamId);
-        }
-        await _step(
-            'Building iOS IPA',
-            () =>
-                runShell('flutter build ipa --dart-define=CLIENT_ENV=".env"'));
-      }
+      await runStep('Building $platform (${type.toUpperCase()})',
+          () => runShell('$buildCommand --dart-define=CLIENT_ENV=.env'));
+
+      builtFile = await runStep(
+          'Renaming ${type.toUpperCase()} artifact',
+          () => whiteLabel.renameOutput(
+              clientName: client, version: version!, type: type));
 
       buildSuccess = true;
       Logger.success('Build process completed successfully!');
@@ -246,7 +238,11 @@ class BuildCommand extends UdaraCommand {
             cause: e, stackTrace: s);
       }
 
-      await _notifyBuildStep('Build Process', client, platform, 'failed',
+      await notifyBuildStep(slackService,
+          step: 'Build Process',
+          client: client,
+          platform: platform,
+          status: 'failed',
           errorMessage: errorMessage);
       rethrow;
     } finally {
@@ -256,16 +252,13 @@ class BuildCommand extends UdaraCommand {
       Logger.phase('Cleaning Up Project State');
 
       try {
-        await cleanup.performFullCleanup(
-            appNameForCleanup: appNameForCleanup, fontsWereChanged: true);
-        Logger.info('Project returned to default state.');
+        await cleanup.performFullCleanup();
       } catch (e) {
-        Logger.warning('Cleanup encountered an issue: $e. Run udara_cli clean');
+        Logger.warning(
+            'Cleanup encountered an issue: $e. Run "udara_cli clean" to finish restoring the project.');
       }
 
-      final buildDuration = buildStartTime != null
-          ? DateTime.now().difference(buildStartTime!)
-          : Duration.zero;
+      final buildDuration = DateTime.now().difference(buildStartTime);
 
       await config.appendBuildHistory(
         client: client,
@@ -290,84 +283,49 @@ class BuildCommand extends UdaraCommand {
           artifactFile: builtFile,
         );
       }
-    }
-  }
 
-  // ---------------------------------------------------------------------------
-  // HELPERS
-  // ---------------------------------------------------------------------------
-
-  Future<T> _step<T>(String description, Future<T> Function() action) async {
-    Logger.info('Running: $description...');
-    try {
-      final result = await action();
-      return result;
-    } on BuildException {
-      rethrow;
-    } catch (e, s) {
-      throw BuildException(
-        'Failed step: "$description"',
-        fix: 'Check task logs above or underlying system prerequisites.',
-        originalStackTrace: s,
-      );
-    }
-  }
-
-  void _validateEnvVariables(
-      String client, String file, Map<String, String?> vars) {
-    final missing = vars.entries
-        .where((entry) => entry.value == null || entry.value!.trim().isEmpty)
-        .map((entry) => entry.key)
-        .toList();
-
-    if (missing.isNotEmpty) {
-      throw BuildException(
-        'Missing required variables in $file for client "$client": ${missing.join(', ')}',
-        fix: 'Add ${missing.join(', ')} to clients/$client/$file',
-      );
-    }
-  }
-
-  /// Initialize Slack service from stored configuration
-  Future<SlackService?> _initializeSlackService(String channel) async {
-    final slackToken = await ConfigService.getSlackBotToken();
-
-    if (slackToken == null) {
-      Logger.warning(
-          'Slack notifications disabled (not configured). Run "udara_cli setup" to enable.');
-      return null;
-    }
-
-    Logger.info('Slack notifications enabled for channel: $channel');
-    return SlackService(
-      botToken: slackToken,
-      channel: channel,
-      debugMode: Logger.verbose,
-    );
-  }
-
-  /// Helper method to send build step notifications
-  Future<void> _notifyBuildStep(
-    String step,
-    String client,
-    String platform,
-    String status, {
-    String? additionalInfo,
-    String? errorMessage,
-  }) async {
-    if (slackService == null) return;
-
-    try {
-      await slackService!.sendBuildStepNotification(
-        step: step,
+      _printSummary(
         client: client,
         platform: platform,
-        status: status,
-        additionalInfo: additionalInfo,
-        errorMessage: errorMessage,
+        type: type,
+        version: version,
+        success: buildSuccess,
+        duration: buildDuration,
+        artifact: builtFile,
       );
-    } catch (e) {
-      Logger.warning('Failed to send Slack notification: $e');
     }
+  }
+
+  void _printSummary({
+    required String client,
+    required String platform,
+    required String type,
+    required String? version,
+    required bool success,
+    required Duration duration,
+    required File? artifact,
+  }) {
+    Logger.phase('Build Summary');
+    Logger.info('Client:    $client');
+    Logger.info('Platform:  $platform (${type.toUpperCase()})');
+    Logger.info('Version:   ${version ?? 'unknown'}');
+    Logger.info(
+        'Duration:  ${duration.inMinutes}m ${duration.inSeconds % 60}s');
+    if (artifact != null) {
+      Logger.info('Artifact:  ${p.relative(artifact.path, from: projectDir)}');
+    }
+    if (success) {
+      Logger.success('Build succeeded.');
+    } else {
+      Logger.warning(
+          'Build failed. See the error above or run "udara_cli doctor --client $client".');
+    }
+  }
+
+  String? _firstNonEmpty(List<String?> values) {
+    for (final value in values) {
+      if (value != null && value.trim().isNotEmpty) return value;
+    }
+    return null;
   }
 }
