@@ -5,6 +5,11 @@ and run or build any client without leaving the editor. The extension is a
 thin UI over [`udara_cli`](https://pub.dev/packages/udara_cli); every action
 runs the CLI so results match what you get in a terminal.
 
+## Install
+
+From the Marketplace: https://marketplace.visualstudio.com/items?itemName=deecency.udara-whitelabel
+(or search "Udara Whitelabel" in the Extensions view).
+
 ## Requirements
 
 - `udara_cli` on your PATH (`dart pub global activate udara_cli`), or set

@@ -539,9 +539,8 @@ The repo ships two editor integrations that sit on top of the CLI. Both show
 every client with its env files, and let you run (`whitelabel` + `flutter
 run`) or build any client from a click:
 
-- **VS Code** — `extensions/vscode/` ([README](extensions/vscode/README.md)).
-  `npm install && npm run package` produces a `.vsix`; install it with
-  `code --install-extension udara-whitelabel-*.vsix`.
+- **VS Code** — [Udara Whitelabel on the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=deecency.udara-whitelabel);
+  source in `extensions/vscode/` ([README](extensions/vscode/README.md)).
 - **Android Studio / IntelliJ IDEA** — [Udara Whitelabel on the JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34541-udara-whitelabel);
   source in `extensions/jetbrains/` ([README](extensions/jetbrains/README.md)).
 
