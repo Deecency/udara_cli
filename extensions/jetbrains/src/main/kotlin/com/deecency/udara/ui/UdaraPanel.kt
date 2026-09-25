@@ -2,6 +2,7 @@ package com.deecency.udara.ui
 
 import com.deecency.udara.actions.BuildClientAction
 import com.deecency.udara.actions.CleanAction
+import com.deecency.udara.actions.DebugClientAction
 import com.deecency.udara.actions.DiffAction
 import com.deecency.udara.actions.DoctorAction
 import com.deecency.udara.actions.RunClientAction
@@ -282,6 +283,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
         })
         group.addSeparator()
         group.add(RunClientAction())
+        group.add(DebugClientAction())
         group.add(RunClientTestAction())
         group.add(BuildClientAction())
         group.add(WhitelabelAction())
@@ -305,6 +307,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
     private fun popupGroup(): DefaultActionGroup {
         val group = DefaultActionGroup()
         group.add(RunClientAction())
+        group.add(DebugClientAction())
         group.add(RunClientTestAction())
         group.add(BuildClientAction())
         group.add(WhitelabelAction())

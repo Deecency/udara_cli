@@ -32,6 +32,16 @@ object UdaraNotifications {
         }).notify(project)
     }
 
+    fun whitelabelFailed(project: Project, root: File, client: String, exitCode: Int, outputTail: String) {
+        group().createNotification(
+            "Whitelabel for \"$client\" failed (exit code $exitCode)",
+            outputTail.ifBlank { "Run Doctor to check the client setup." },
+            NotificationType.ERROR,
+        ).addAction(NotificationAction.createSimple("Run Doctor") {
+            com.deecency.udara.cli.UdaraRunner.runCli(project, root, "udara doctor $client", listOf("doctor", "--client", client))
+        }).notify(project)
+    }
+
     fun buildFinished(project: Project, client: String, exitCode: Int, artifact: String?, onDoctor: () -> Unit) {
         if (exitCode == 0) {
             val n = group().createNotification(

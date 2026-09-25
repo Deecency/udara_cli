@@ -16,6 +16,7 @@ class UdaraSettings : PersistentStateComponent<UdaraSettings.State> {
         var flutterRunArgs: String = ""
         var maskSecrets: Boolean = true
         var askForDevice: Boolean = true
+        var useFlutterRunConfigs: Boolean = true
     }
 
     private var myState = State()

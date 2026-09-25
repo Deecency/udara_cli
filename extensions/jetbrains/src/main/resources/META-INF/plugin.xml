@@ -9,7 +9,8 @@
     from a tool window in Android Studio or IntelliJ IDEA.
     <ul>
       <li>Clients tree with app name, bundle id, .env / .env_test keys (secrets masked)</li>
-      <li>Run a client: whitelabel the project, then <code>flutter run</code> with hot reload in the Run tool window</li>
+      <li>Run or debug a client through the Flutter plugin with the usual hot reload and debugger controls</li>
+      <li>Build a specific app version without editing pubspec.yaml</li>
       <li>Build a client (platform, type, environment) and reveal the artifact</li>
       <li>Doctor, Clean, Diff, Set up clients, and a Build History table</li>
     </ul>
@@ -19,10 +20,14 @@
     <change-notes><![CDATA[
     <h3>0.1.1</h3>
     <ul>
-      <li>Run Client now starts <code>flutter run</code> in the Run tool window (with a pseudo-terminal, so hot reload and
-          the r / R / q keys work) instead of the Terminal plugin. This removes all deprecated and
-          scheduled-for-removal API usages reported for IntelliJ 2026.1 and 2026.2.</li>
-      <li>No longer depends on the Terminal plugin.</li>
+      <li>Run Client and the new Debug Client launch through the Flutter plugin: each client gets a normal Flutter run
+          configuration ("Udara: acme") whose Before launch step whitelabels the client, so the standard Run / Debug
+          buttons, hot reload, hot restart, DevTools and breakpoints all work. Falls back to the Run console when the
+          Flutter plugin is not installed.</li>
+      <li>Build Client… takes an optional app version (e.g. 1.4.0 or 1.4.0+12). pubspec.yaml is set for that build only
+          and restored afterwards, even if the IDE is closed mid-build.</li>
+      <li>No longer depends on the Terminal plugin, removing the deprecated and scheduled-for-removal API usages
+          reported for IntelliJ 2026.1 and 2026.2.</li>
     </ul>
     <h3>0.1.0</h3>
     <ul>
@@ -43,12 +48,15 @@
                                  id="com.deecency.udara.settings"
                                  displayName="Udara Whitelabel"/>
         <notificationGroup id="Udara" displayType="BALLOON"/>
+        <stepsBeforeRunProvider implementation="com.deecency.udara.run.UdaraBeforeRunTaskProvider"/>
+        <postStartupActivity implementation="com.deecency.udara.run.UdaraStartupActivity"/>
     </extensions>
 
     <actions>
         <group id="Udara.ToolsMenu" text="Udara Whitelabel" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <action id="Udara.RunClient" class="com.deecency.udara.actions.RunClientAction" text="Run Client…"/>
+            <action id="Udara.DebugClient" class="com.deecency.udara.actions.DebugClientAction" text="Debug Client…"/>
             <action id="Udara.BuildClient" class="com.deecency.udara.actions.BuildClientAction" text="Build Client…"/>
             <action id="Udara.Whitelabel" class="com.deecency.udara.actions.WhitelabelAction" text="Whitelabel Project as Client…"/>
             <separator/>

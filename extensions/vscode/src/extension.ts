@@ -2,10 +2,13 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { findProjectRoot, HISTORY_FILE } from './cli';
 import { ClientsTreeProvider } from './clientsTree';
-import { registerCommands } from './commands';
+import { registerCommands, restorePendingVersion } from './commands';
 import { HistoryTreeProvider } from './historyTree';
 
 export function activate(context: vscode.ExtensionContext): void {
+  // A build interrupted by closing VS Code may have left an overridden version.
+  restorePendingVersion(context);
+
   let root = findProjectRoot();
   const getRoot = () => root;
 

@@ -35,6 +35,7 @@ export interface UdaraConfig {
   defaultBuildType: 'aab' | 'apk';
   maskSecrets: boolean;
   askForDevice: boolean;
+  launchMode: 'native' | 'terminal';
 }
 
 export const HISTORY_FILE = '.udara_build_history.json';
@@ -48,6 +49,7 @@ export function getConfig(): UdaraConfig {
     defaultBuildType: c.get<'aab' | 'apk'>('defaultBuildType', 'aab'),
     maskSecrets: c.get<boolean>('maskSecrets', true),
     askForDevice: c.get<boolean>('askForDevice', true),
+    launchMode: c.get<'native' | 'terminal'>('launchMode', 'native'),
   };
 }
 

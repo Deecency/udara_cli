@@ -24,9 +24,9 @@ object UdaraRunner {
         title: String,
         args: List<String>,
         onFinished: ((Int) -> Unit)? = null,
-    ) {
+    ): Boolean {
         val cli = UdaraSettings.getInstance().state.cliPath
-        run(project, UdaraCli.commandLine(root, cli, args), title, cli, onFinished)
+        return run(project, UdaraCli.commandLine(root, cli, args), title, cli, onFinished)
     }
 
     /**
@@ -48,12 +48,12 @@ object UdaraRunner {
         title: String,
         executable: String,
         onFinished: ((Int) -> Unit)?,
-    ) {
+    ): Boolean {
         val handler = try {
             KillableColoredProcessHandler(commandLine)
         } catch (e: ExecutionException) {
             UdaraNotifications.cliMissing(project, e.message ?: executable)
-            return
+            return false
         }
         ProcessTerminatedListener.attach(handler)
         RunContentExecutor(project, handler)
@@ -62,5 +62,6 @@ object UdaraRunner {
             .withStop({ handler.destroyProcess() }, { !handler.isProcessTerminated })
             .withAfterCompletion { onFinished?.invoke(handler.exitCode ?: -1) }
             .run()
+        return true
     }
 }

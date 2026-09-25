@@ -1,6 +1,9 @@
 package com.deecency.udara.actions
 
 import com.deecency.udara.cli.ClientInfo
+import com.deecency.udara.cli.PubspecVersion
+import com.deecency.udara.run.FlutterRunConfigs
+import com.deecency.udara.run.VersionOverride
 import com.deecency.udara.cli.UdaraCli
 import com.deecency.udara.cli.UdaraRunner
 import com.deecency.udara.settings.UdaraSettings
@@ -59,7 +62,23 @@ abstract class UdaraActionBase(text: String, description: String?, icon: Icon?) 
 object RunFlow {
     private class DeviceChoice(val id: String?, val label: String)
 
-    fun run(project: Project, root: File, client: ClientInfo, isTest: Boolean) {
+    fun run(project: Project, root: File, client: ClientInfo, isTest: Boolean, debug: Boolean = false) {
+        // Preferred: a Flutter plugin run configuration whose "before launch"
+        // step whitelabels the client, so the normal Flutter controls apply.
+        if (UdaraSettings.getInstance().state.useFlutterRunConfigs && FlutterRunConfigs.isAvailable()) {
+            val settings = FlutterRunConfigs.ensure(project, root, client.name, isTest)
+            if (settings != null) {
+                FlutterRunConfigs.launch(settings, debug)
+                return
+            }
+        }
+        if (UdaraSettings.getInstance().state.useFlutterRunConfigs) {
+            UdaraNotifications.info(
+                project, "Flutter plugin not found",
+                "Install the Flutter plugin for the standard hot reload and debug controls. Using the Run console for now.",
+            )
+        }
+
         val args = mutableListOf("whitelabel", "--client", client.name, "--keep")
         if (isTest) args += "--test"
         UdaraRunner.runCli(project, root, "udara whitelabel ${client.name}", args) { code ->
@@ -115,8 +134,15 @@ class RunClientAction : UdaraActionBase(
         withClient(e, "Run which client?") { project, root, client -> RunFlow.run(project, root, client, false) }
 }
 
+class DebugClientAction : UdaraActionBase(
+    "Debug Client…", "Whitelabel the project as a client and start it in the Flutter debugger", AllIcons.Actions.StartDebugger,
+) {
+    override fun actionPerformed(e: AnActionEvent) =
+        withClient(e, "Debug which client?") { project, root, client -> RunFlow.run(project, root, client, false, debug = true) }
+}
+
 class RunClientTestAction : UdaraActionBase(
-    "Run Client with Test Env…", "Whitelabel using .env_test and start flutter run", AllIcons.Actions.StartDebugger,
+    "Run Client with Test Env…", "Whitelabel using .env_test and start flutter run", AllIcons.Actions.RunAll,
 ) {
     override fun actionPerformed(e: AnActionEvent) =
         withClient(e, "Run which client (test env)?") { project, root, client -> RunFlow.run(project, root, client, true) }
@@ -127,15 +153,21 @@ class BuildClientAction : UdaraActionBase(
 ) {
     override fun actionPerformed(e: AnActionEvent) =
         withClient(e, "Build which client?") { project, root, client ->
-            val dialog = BuildDialog(project, client.name)
+            val current = PubspecVersion.read(root)
+            val dialog = BuildDialog(project, client.name, current)
             if (!dialog.showAndGet()) return@withClient
-            UdaraRunner.runCli(project, root, "udara build ${client.name} ${dialog.platform}", dialog.cliArgs()) { code ->
+            val version = dialog.overrideVersion
+            if (version != null) VersionOverride.apply(project, root, current!!, version)
+            val title = "udara build ${client.name} ${dialog.platform}${version?.let { " v$it" } ?: ""}"
+            val started = UdaraRunner.runCli(project, root, title, dialog.cliArgs()) { code ->
+                if (version != null) VersionOverride.restore(project)
                 val artifact = UdaraCli.readHistory(root).firstOrNull()?.artifact
                 UdaraNotifications.buildFinished(project, client.name, code, artifact) {
                     UdaraRunner.runCli(project, root, "udara doctor ${client.name}", listOf("doctor", "--client", client.name))
                 }
                 refreshPanel(e)
             }
+            if (!started && version != null) VersionOverride.restore(project)
         }
 }
 

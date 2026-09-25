@@ -12,7 +12,8 @@ class UdaraSettingsConfigurable : Configurable {
     private val flutterField = JBTextField()
     private val runArgsField = JBTextField()
     private val maskBox = JBCheckBox("Mask secret-looking env values (TOKEN, SECRET, PASSWORD, KEY)")
-    private val deviceBox = JBCheckBox("Ask which device to use before flutter run")
+    private val deviceBox = JBCheckBox("Ask which device to use before flutter run (only without the Flutter plugin)")
+    private val nativeBox = JBCheckBox("Launch through Flutter plugin run configurations (hot reload button, debugger, DevTools)")
     private var panel: JPanel? = null
 
     override fun getDisplayName(): String = "Udara Whitelabel"
@@ -22,6 +23,7 @@ class UdaraSettingsConfigurable : Configurable {
             .addLabeledComponent("udara_cli path or command:", cliField, 1, false)
             .addLabeledComponent("flutter path or command:", flutterField, 1, false)
             .addLabeledComponent("Extra 'flutter run' arguments:", runArgsField, 1, false)
+            .addComponent(nativeBox, 1)
             .addComponent(maskBox, 1)
             .addComponent(deviceBox, 1)
             .addComponentFillVertically(JPanel(), 0)
@@ -37,7 +39,8 @@ class UdaraSettingsConfigurable : Configurable {
             flutterField.text != s.flutterPath ||
             runArgsField.text != s.flutterRunArgs ||
             maskBox.isSelected != s.maskSecrets ||
-            deviceBox.isSelected != s.askForDevice
+            deviceBox.isSelected != s.askForDevice ||
+            nativeBox.isSelected != s.useFlutterRunConfigs
     }
 
     override fun apply() {
@@ -47,6 +50,7 @@ class UdaraSettingsConfigurable : Configurable {
         s.flutterRunArgs = runArgsField.text.trim()
         s.maskSecrets = maskBox.isSelected
         s.askForDevice = deviceBox.isSelected
+        s.useFlutterRunConfigs = nativeBox.isSelected
     }
 
     override fun reset() {
@@ -56,6 +60,7 @@ class UdaraSettingsConfigurable : Configurable {
         runArgsField.text = s.flutterRunArgs
         maskBox.isSelected = s.maskSecrets
         deviceBox.isSelected = s.askForDevice
+        nativeBox.isSelected = s.useFlutterRunConfigs
     }
 
     override fun disposeUIResources() {

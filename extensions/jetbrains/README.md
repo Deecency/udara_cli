@@ -22,17 +22,25 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
   client (app name, bundle id), expandable to `.env` / `.env_test` and every
   key inside them. Secret-looking values are masked. Double-click a key to
   open the file at that line.
-- **Toolbar / right-click actions**: Run Client, Run Client with Test Env,
-  Build Client…, Whitelabel Project as Client…, Doctor, Clean, Diff Two
-  Clients…, Set Up Clients…. The same actions live under **Tools | Udara
-  Whitelabel**, where they prompt for a client.
-- **Run Client** runs `udara_cli whitelabel --client <name> --keep` in the Run
-  tool window, then starts `flutter run --dart-define=CLIENT_ENV=.env` there
-  too (with a device picker from `flutter devices`). Type `r`, `R` or `q` and
-  press Enter in that console for hot reload, hot restart or quit.
-- **Build Client…** opens a dialog for platform, Android build type, test env
-  and Slack, runs `udara_cli build`, and notifies you with a *Reveal Artifact*
-  link.
+- **Toolbar / right-click actions**: Run Client, Debug Client, Run Client
+  with Test Env, Build Client…, Whitelabel Project as Client…, Doctor, Clean,
+  Diff Two Clients…, Set Up Clients…. The same actions live under **Tools |
+  Udara Whitelabel**, where they prompt for a client.
+- **Run Client / Debug Client** create (or update) a normal Flutter run
+  configuration for the client, named e.g. `Udara: acme`, and launch it. Its
+  *Before launch* step runs `udara_cli whitelabel --client acme --keep`, and it
+  passes `--dart-define=CLIENT_ENV=.env`. Everything after that is the Flutter
+  plugin's own UI: the device selector, Run / Debug buttons, hot reload and
+  hot restart, DevTools and breakpoints. Because the configurations stay in
+  the run dropdown, you can also just pick `Udara: acme` there next time.
+  Without the Flutter plugin, the app runs in the Run tool window instead
+  (type `r`, `R` or `q` and press Enter for reload, restart or quit).
+- **Build Client…** opens a dialog for platform, Android build type, an
+  optional **app version**, test env and Slack, runs `udara_cli build`, and
+  notifies you with a *Reveal Artifact* link. A version like `1.4.0+12` is
+  written to `pubspec.yaml` for that build only and restored afterwards (also
+  after an IDE restart if the build was interrupted). `1.4.0` without a build
+  number keeps the current one.
 - **History tab**: every recorded build from `.udara_build_history.json`.
   Double-click a row to reveal the artifact or see the error.
 

@@ -15,6 +15,7 @@ repositories {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     intellijPlatform {
         // Android Studio Ladybug and newer are built on the 2024.2 platform;
         // building against IntelliJ Community keeps the download small.

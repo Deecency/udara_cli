@@ -4,7 +4,23 @@ import * as vscode from 'vscode';
 import { ClientInfo, getConfig, listDevices, readHistory } from './cli';
 import { ClientItem, ClientsTreeProvider, EnvEntryItem, EnvFileItem } from './clientsTree';
 import { HistoryItem, HistoryTreeProvider } from './historyTree';
+import {
+  readPubspecVersion,
+  resolveVersion,
+  VERSION_PATTERN,
+  writePubspecVersion,
+  pubspecPath,
+} from './pubspecVersion';
 import { buildCommandLine, runCliTask, runInTerminal } from './runner';
+
+/** workspaceState key holding the version to put back if VS Code closes mid-build. */
+export const PENDING_VERSION_KEY = 'udara.pendingVersionRestore';
+
+interface PendingVersionRestore {
+  root: string;
+  original: string;
+  override: string;
+}
 
 export interface CommandContext {
   context: vscode.ExtensionContext;
@@ -169,7 +185,38 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
   }
   setActiveClient(ctx, client.name);
 
-  const { flutterPath, flutterRunArgs, askForDevice } = getConfig();
+  const { flutterPath, flutterRunArgs, askForDevice, launchMode } = getConfig();
+  const sessionName = `Udara: ${client.name}${isTest ? ' (test)' : ''}`;
+
+  if (launchMode === 'native' && isDartExtensionInstalled()) {
+    // Hand the launch to the Dart/Flutter extension so the usual debug
+    // toolbar, hot reload on save, breakpoints and DevTools all work. The
+    // device comes from the Flutter device selector in the status bar.
+    const folder =
+      vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root)) ??
+      vscode.workspace.workspaceFolders?.[0];
+    const started = await vscode.debug.startDebugging(folder, {
+      type: 'dart',
+      request: 'launch',
+      name: sessionName,
+      cwd: root,
+      program: path.join(root, 'lib', 'main.dart'),
+      toolArgs: ['--dart-define=CLIENT_ENV=.env', ...flutterRunArgs],
+    });
+    if (!started) {
+      vscode.window.showErrorMessage(
+        `Could not start a Flutter session for "${client.name}". Check the Debug Console.`,
+      );
+    }
+    return;
+  }
+
+  if (launchMode === 'native') {
+    vscode.window.showInformationMessage(
+      'Install the Flutter extension (Dart-Code) to get the standard hot reload controls. Using a terminal for now.',
+    );
+  }
+
   const device = askForDevice ? await pickDevice(root) : undefined;
   const runArgs = [
     'run',
@@ -177,10 +224,13 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
     ...(device ? ['-d', device] : []),
     ...flutterRunArgs,
   ];
-  runInTerminal(
-    `flutter run · ${client.name}${isTest ? ' (test)' : ''}`,
-    root,
-    buildCommandLine(flutterPath, runArgs),
+  runInTerminal(`flutter run · ${sessionName.substring(7)}`, root, buildCommandLine(flutterPath, runArgs));
+}
+
+function isDartExtensionInstalled(): boolean {
+  return (
+    vscode.extensions.getExtension('Dart-Code.dart-code') !== undefined ||
+    vscode.extensions.getExtension('Dart-Code.flutter') !== undefined
   );
 }
 
@@ -262,6 +312,25 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     return;
   }
 
+  const currentVersion = readPubspecVersion(root);
+  const versionInput = await vscode.window.showInputBox({
+    title: `Build "${client.name}"`,
+    prompt: 'App version for this build (optional). Leave empty to keep the pubspec version.',
+    placeHolder: currentVersion ? `Leave empty for ${currentVersion}. e.g. 1.4.0 or 1.4.0+12` : 'e.g. 1.4.0 or 1.4.0+12',
+    validateInput: (v) =>
+      !v.trim() || VERSION_PATTERN.test(v.trim())
+        ? undefined
+        : 'Use x.y.z or x.y.z+build, e.g. 1.4.0 or 1.4.0+12',
+  });
+  if (versionInput === undefined) {
+    return; // Escape cancels the build.
+  }
+  const overrideVersion = resolveVersion(versionInput, currentVersion);
+  if (overrideVersion && !currentVersion) {
+    vscode.window.showErrorMessage('pubspec.yaml has no "version:" line to override.');
+    return;
+  }
+
   const args = [
     'build',
     '--client',
@@ -271,8 +340,18 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     ...(type ? ['--type', type] : []),
     ...(env.isTest ? ['--test'] : []),
   ];
-  const label = `build ${client.name} ${platform.value}${type ? ` ${type}` : ''}`;
-  const code = await runCliTask(label, args, root);
+  const label = `build ${client.name} ${platform.value}${type ? ` ${type}` : ''}${
+    overrideVersion ? ` v${overrideVersion}` : ''
+  }`;
+
+  let code: number | undefined;
+  if (overrideVersion && currentVersion && overrideVersion !== currentVersion) {
+    code = await withVersionOverride(ctx, root, currentVersion, overrideVersion, () =>
+      runCliTask(label, args, root),
+    );
+  } else {
+    code = await runCliTask(label, args, root);
+  }
   ctx.history.refresh();
   ctx.clients.refresh();
 
@@ -280,7 +359,9 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     const latest = readHistory(root)[0];
     const artifact = latest?.artifact;
     const choice = await vscode.window.showInformationMessage(
-      `Build for "${client.name}" succeeded.${artifact ? ` ${path.basename(artifact)}` : ''}`,
+      `Build for "${client.name}"${overrideVersion ? ` v${overrideVersion}` : ''} succeeded.${
+        artifact ? ` ${path.basename(artifact)}` : ''
+      }`,
       ...(artifact ? ['Reveal Artifact'] : []),
     );
     if (choice && artifact) {
@@ -458,6 +539,56 @@ async function installCli(ctx: CommandContext) {
   vscode.window.showInformationMessage(
     'Installing udara_cli. Make sure ~/.pub-cache/bin is on your PATH, then click Refresh.',
   );
+}
+
+/**
+ * Temporarily sets pubspec.yaml's version for one build. udara_cli reads the
+ * version from pubspec (artifact name, history, Slack) and Flutter builds
+ * with it, so no CLI flag is needed. The original value is always put back;
+ * it is also persisted so activation can restore it after a crash.
+ */
+async function withVersionOverride<T>(
+  ctx: CommandContext,
+  root: string,
+  original: string,
+  override: string,
+  action: () => Thenable<T> | Promise<T>,
+): Promise<T> {
+  // Don't clobber unsaved edits to pubspec.yaml.
+  const open = vscode.workspace.textDocuments.find(
+    (d) => d.uri.fsPath === pubspecPath(root) && d.isDirty,
+  );
+  if (open) {
+    await open.save();
+  }
+
+  const pending: PendingVersionRestore = { root, original, override };
+  await ctx.context.workspaceState.update(PENDING_VERSION_KEY, pending);
+  writePubspecVersion(root, override);
+  try {
+    return await action();
+  } finally {
+    restorePendingVersion(ctx.context);
+  }
+}
+
+/** Puts back a version overridden by an interrupted build. Safe to call anytime. */
+export function restorePendingVersion(context: vscode.ExtensionContext): void {
+  const pending = context.workspaceState.get<PendingVersionRestore>(PENDING_VERSION_KEY);
+  if (!pending) {
+    return;
+  }
+  try {
+    // Only restore if nobody changed the version since we overrode it.
+    if (readPubspecVersion(pending.root) === pending.override) {
+      writePubspecVersion(pending.root, pending.original);
+    }
+  } catch (e) {
+    vscode.window.showWarningMessage(
+      `Udara could not restore pubspec version ${pending.original}: ${e instanceof Error ? e.message : e}`,
+    );
+  }
+  void context.workspaceState.update(PENDING_VERSION_KEY, undefined);
 }
 
 function escapeRegExp(value: string): string {
