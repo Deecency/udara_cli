@@ -34,6 +34,12 @@ intellijPlatform {
         }
     }
     buildSearchableOptions = false
+
+    // For updates after the first (manual) Marketplace upload:
+    //   JETBRAINS_MARKETPLACE_TOKEN=... ./gradlew publishPlugin
+    publishing {
+        token = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
+    }
 }
 
 kotlin {

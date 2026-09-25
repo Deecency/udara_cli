@@ -16,6 +16,14 @@
     Requires <code>udara_cli</code> on the PATH or configured under Settings | Tools | Udara Whitelabel.
     ]]></description>
 
+    <change-notes><![CDATA[
+    <h3>0.1.0</h3>
+    <ul>
+      <li>Initial release: Clients tree with env files, Run / Build / Whitelabel / Doctor / Clean / Diff / Set Up Clients actions, Build History tab.</li>
+      <li>Requires udara_cli 1.2.0 or newer.</li>
+    </ul>
+    ]]></change-notes>
+
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.plugins.terminal</depends>
 
