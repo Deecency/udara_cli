@@ -11,7 +11,7 @@ A powerful CLI tool for managing whitelabel Flutter projects with multi-client s
 - 🏢 **Multi-client support** - Manage unlimited white-label variants
 - 🎨 **Asset management** - Client-specific icons, logos, and fonts
 - ⚙️ **Environment-based configuration** - Separate configs for dev, staging, and production
-- 🚀 **Automated builds** - One command to build for any client
+- 🚀 **Automated builds** - One command to build for any client, or a whole batch of clients and platforms
 - 📱 **Slack notifications** - Get build status updates in Slack
 - 🔧 **Easy setup** - Guided project initialization
 - 🩺 **Pre-build validation** - Catch missing config, keys, or assets before a build fails
@@ -416,10 +416,12 @@ udara_cli build --client clientA --platform android
 
 ### Build Options
 
-- `--client` or `-c`: **Required** - The name of the client to build for (e.g., `default`, `clientA`)
-- `--platform` or `-p`: Target platform (`android` or `ios`) - defaults to `android`
-- `--type` or `-t`: Android build type (`aab` or `apk`) - defaults to `aab`
+- `--client` or `-c`: **Required** - The client to build for (e.g., `default`, `clientA`). Comma-separate or repeat it to build several.
+- `--all-clients`: Build every client in `clients/` instead of naming them
+- `--platform` or `-p`: Target platform(s): `android`, `ios` or `android,ios` - defaults to `android`
+- `--type` or `-t`: Android build type(s): `aab`, `apk` or `aab,apk` - defaults to `aab` (iOS always builds an IPA)
 - `--test`: Build using the test environment (`.env_test`)
+- `--fail-fast`: In a batch, stop at the first failed build instead of continuing
 - `--slack`: Send build notifications to Slack
 - `--slack-channel`: Specify Slack channel (e.g., `#builds`)
 
@@ -445,7 +447,36 @@ udara_cli build --client clientA --platform android --test
 
 # Build with Slack notifications
 udara_cli build --client clientA --platform android --slack --slack-channel #builds
+
+# Batch: two clients, AAB + APK + IPA each (6 builds)
+udara_cli build --client clientA,clientB --platform android,ios --type aab,apk
+
+# Every client's App Bundle
+udara_cli build --all-clients
 ```
+
+Finished artifacts are collected in `build/udara/<client>/`, named
+`<client>_v<version>.<apk|aab|ipa>`, so later builds never overwrite them.
+
+### Batch Builds
+
+When you pass several clients, platforms or types, `build` runs them as a
+batch, one client at a time:
+
+1. The client's branding is applied once (bundle id, name, icons, splash,
+   `after_branding` hooks).
+2. Each requested target is built from that branding, e.g. AAB, then APK, then IPA.
+3. The project is restored before the next client starts.
+
+A failed build doesn't stop the batch: the remaining targets and clients
+still run, and a summary table at the end lists every build with its
+duration and artifact or error. Every build gets its own history entry and
+Slack summary. The command exits non-zero if any build failed, which makes it
+suitable for CI. Use `--fail-fast` to stop at the first failure instead.
+
+Builds run sequentially: the pipeline rewrites the project for each client,
+so two clients cannot safely build in the same checkout at the same time.
+Both IDE extensions offer the same thing under **Build Multiple Clients…**.
 
 ---
 
@@ -465,7 +496,7 @@ The CLI performs the following steps:
    - Generates launcher icons
    - Creates splash screens
    - Fixes platform-specific issues
-4. **Final Build**: Builds the app and renames the artifact to `<client>_v<version>.<apk|aab|ipa>`
+4. **Final Build**: Builds the app and collects the artifact as `build/udara/<client>/<client>_v<version>.<apk|aab|ipa>`
 5. **Cleanup**: Restores the original project state (always runs, even on failure)
 6. **History**: Records the build (success or failure) to `.udara_build_history.json`
    (`after_branding` hooks run at the end of step 3, `after_build` hooks after step 4)

@@ -2,7 +2,7 @@
   "name": "udara-whitelabel",
   "displayName": "Udara Whitelabel",
   "description": "Browse whitelabel clients and their env files, then run or build any client with udara_cli.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "deecency",
   "license": "MIT",
   "repository": {
@@ -90,6 +90,12 @@
         "title": "Build Client\u2026",
         "category": "Udara",
         "icon": "$(package)"
+      },
+      {
+        "command": "udara.buildMultiple",
+        "title": "Build Multiple Clients\u2026",
+        "category": "Udara",
+        "icon": "$(layers)"
       },
       {
         "command": "udara.whitelabel",
@@ -193,6 +199,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "udara.buildMultiple",
+          "when": "view == udara.clients",
+          "group": "navigation@3"
+        },
+        {
           "command": "udara.diff",
           "when": "view == udara.clients",
           "group": "1_actions@1"
@@ -238,6 +249,11 @@
           "command": "udara.build",
           "when": "view == udara.clients && viewItem == client",
           "group": "1_run@3"
+        },
+        {
+          "command": "udara.buildMultiple",
+          "when": "view == udara.clients && viewItem == client",
+          "group": "1_run@4"
         },
         {
           "command": "udara.whitelabel",

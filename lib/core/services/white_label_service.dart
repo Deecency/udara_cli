@@ -213,7 +213,14 @@ class WhiteLabelService {
   // BUILD ARTIFACTS
   // --------------------------------------------------------------------------
 
-  /// Renames the final .apk, .aab or .ipa to include client name and version.
+  /// Folder that collects finished artifacts, one subfolder per client.
+  Directory outputDir(String clientName) =>
+      Directory(p.join(projectDir, 'build', 'udara', clientName));
+
+  /// Moves the final .apk, .aab or .ipa to `build/udara/<client>/`, named
+  /// `<client>_v<version>.<type>`. Keeping artifacts out of Flutter's own
+  /// output folders means a later build (another client in a batch, or the
+  /// next run) cannot overwrite or clean them up.
   Future<File> renameOutput({
     required String clientName,
     required String version,
@@ -231,10 +238,15 @@ class WhiteLabelService {
 
     final safeVersion = version.replaceAll('+', '_');
     final newName = '${clientName}_v$safeVersion.$type';
-    final destinationPath = p.join(buildFile.parent.path, newName);
+    final destination = outputDir(clientName);
+    final destinationPath = p.join(destination.path, newName);
 
-    Logger.info('Renaming build artifact to: $newName');
+    Logger.info(
+        'Collecting artifact: ${p.relative(destinationPath, from: projectDir)}');
     try {
+      await destination.create(recursive: true);
+      final existing = File(destinationPath);
+      if (existing.existsSync()) await existing.delete();
       return await buildFile.rename(destinationPath);
     } catch (e, s) {
       throw BuildException(

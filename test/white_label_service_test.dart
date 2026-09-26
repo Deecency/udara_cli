@@ -148,8 +148,32 @@ flutter:
       final renamed = await service.renameOutput(
           clientName: 'acme', version: '1.2.3+4', type: 'apk');
 
-      expect(p.basename(renamed.path), 'acme_v1.2.3_4.apk');
+      expect(p.relative(renamed.path, from: tmp.path),
+          p.join('build', 'udara', 'acme', 'acme_v1.2.3_4.apk'));
       expect(renamed.existsSync(), isTrue);
+    });
+
+    test('a later build of another client does not touch earlier artifacts',
+        () async {
+      await writeFile('build/app/outputs/apk/release/app-release.apk', 'acme');
+      final first = await service.renameOutput(
+          clientName: 'acme', version: '1.0.0', type: 'apk');
+      await writeFile('build/app/outputs/apk/release/app-release.apk', 'beta');
+      final second = await service.renameOutput(
+          clientName: 'beta', version: '1.0.0', type: 'apk');
+
+      expect(first.readAsStringSync(), 'acme');
+      expect(second.readAsStringSync(), 'beta');
+    });
+
+    test('rebuilding the same version replaces the old artifact', () async {
+      await writeFile('build/app/outputs/apk/release/app-release.apk', 'old');
+      await service.renameOutput(
+          clientName: 'acme', version: '1.0.0', type: 'apk');
+      await writeFile('build/app/outputs/apk/release/app-release.apk', 'new');
+      final again = await service.renameOutput(
+          clientName: 'acme', version: '1.0.0', type: 'apk');
+      expect(again.readAsStringSync(), 'new');
     });
 
     test('finds the newest ipa', () async {

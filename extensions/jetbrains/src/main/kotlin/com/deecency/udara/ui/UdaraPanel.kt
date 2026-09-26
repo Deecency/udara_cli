@@ -1,6 +1,7 @@
 package com.deecency.udara.ui
 
 import com.deecency.udara.actions.BuildClientAction
+import com.deecency.udara.actions.BuildMultipleAction
 import com.deecency.udara.actions.CleanAction
 import com.deecency.udara.actions.DebugClientAction
 import com.deecency.udara.actions.DiffAction
@@ -244,7 +245,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
         when (val obj = node.userObject) {
             is EnvFileNode -> openFile(obj.path, null)
             is EnvEntryNode -> openFile(obj.filePath, obj.key)
-            is FontsNode -> RevealFileAction.openFile(File(obj.client.path, "fonts"))
+            is FontsNode -> RevealFileAction.openDirectory(File(obj.client.path, "fonts").toPath())
         }
     }
 
@@ -265,7 +266,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
         val entry = history[row]
         val artifact = entry.artifact?.let { File(it) }
         if (artifact != null && artifact.exists()) {
-            RevealFileAction.openFile(artifact)
+            RevealFileAction.openFile(artifact.toPath())
         } else if (entry.error != null) {
             UdaraNotifications.error(project, "Build failed: ${entry.client}", entry.error)
         }
@@ -286,6 +287,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
         group.add(DebugClientAction())
         group.add(RunClientTestAction())
         group.add(BuildClientAction())
+        group.add(BuildMultipleAction())
         group.add(WhitelabelAction())
         group.addSeparator()
         group.add(DoctorAction())
@@ -310,6 +312,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
         group.add(DebugClientAction())
         group.add(RunClientTestAction())
         group.add(BuildClientAction())
+        group.add(BuildMultipleAction())
         group.add(WhitelabelAction())
         group.addSeparator()
         group.add(DoctorAction())

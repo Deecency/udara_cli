@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Build Multiple Clients…: pick several clients, Android and/or iOS, AAB
+  and/or APK, and build them all in one batch (requires udara_cli 1.4.0).
+  Reports how many succeeded and opens the build/udara/ artifacts folder.
+
 ## 0.1.1
 
 - Run Client launches through the Flutter extension (Dart-Code) as a normal

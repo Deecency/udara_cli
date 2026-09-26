@@ -1,3 +1,15 @@
+## 1.4.0
+
+* **NEW**:
+
+- Batch builds: `--client`, `--platform` and `--type` accept several values (comma-separated or repeated), and `--all-clients` builds every client. Each client is branded once, every requested target is built from it (e.g. AAB + APK + IPA), and the project is restored before the next client. A failed build doesn't stop the batch unless `--fail-fast` is given; a summary table lists every build, each gets its own history entry and Slack summary, and the exit code is non-zero if any failed.
+- The IDE extensions (VS Code 0.1.2, Android Studio plugin 0.1.2) add **Build Multiple Clients…** on top of this.
+
+* **CHANGES**:
+
+- Artifacts are now collected in `build/udara/<client>/<client>_v<version>.<type>` instead of being renamed inside Flutter's output folders, so a later build (another client in a batch, or the next run) can't overwrite or clean them up.
+- In `after_branding` hooks of a multi-target build, `UDARA_PLATFORM` and `UDARA_BUILD_TYPE` list all targets (e.g. `android,ios`); `after_build` hooks still get the single target.
+
 ## 1.3.0
 
 * **NEW**:

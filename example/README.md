@@ -65,10 +65,13 @@ udara_cli doctor
 ## 4. Build
 
 ```bash
-udara_cli build --client acme --type apk          # build/app/outputs/apk/release/acme_v1.0.0_1.apk
+udara_cli build --client acme --type apk          # build/udara/acme/acme_v1.0.0_1.apk
 udara_cli build --client beta                     # AAB
-udara_cli build --client acme --platform ios      # build/ios/ipa/acme_v1.0.0_1.ipa
+udara_cli build --client acme --platform ios      # build/udara/acme/acme_v1.0.0_1.ipa
 udara_cli build --client beta --test --slack --slack-channel #builds
+
+# Batch: both clients, AAB + APK + IPA each
+udara_cli build --client acme,beta --platform android,ios --type aab,apk
 ```
 
 Each run restores the project afterwards and is recorded:

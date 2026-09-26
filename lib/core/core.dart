@@ -1,3 +1,4 @@
+export 'build_plan.dart';
 export 'exceptions.dart';
 export 'placeholder_png.dart';
 export 'services/config_service.dart';

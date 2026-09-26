@@ -18,6 +18,12 @@
     ]]></description>
 
     <change-notes><![CDATA[
+    <h3>0.1.2</h3>
+    <ul>
+      <li>Build Multiple Clients…: pick several clients, Android and/or iOS, AAB and/or APK, and build them all in one
+          batch (requires udara_cli 1.4.0). A failed build doesn't stop the rest unless you ask it to; artifacts
+          are collected in build/udara/.</li>
+    </ul>
     <h3>0.1.1</h3>
     <ul>
       <li>Run Client and the new Debug Client launch through the Flutter plugin: each client gets a normal Flutter run
@@ -58,6 +64,7 @@
             <action id="Udara.RunClient" class="com.deecency.udara.actions.RunClientAction" text="Run Client…"/>
             <action id="Udara.DebugClient" class="com.deecency.udara.actions.DebugClientAction" text="Debug Client…"/>
             <action id="Udara.BuildClient" class="com.deecency.udara.actions.BuildClientAction" text="Build Client…"/>
+            <action id="Udara.BuildMultiple" class="com.deecency.udara.actions.BuildMultipleAction" text="Build Multiple Clients…"/>
             <action id="Udara.Whitelabel" class="com.deecency.udara.actions.WhitelabelAction" text="Whitelabel Project as Client…"/>
             <separator/>
             <action id="Udara.Doctor" class="com.deecency.udara.actions.DoctorAction" text="Doctor"/>

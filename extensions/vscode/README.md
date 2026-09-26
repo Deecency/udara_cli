@@ -43,6 +43,11 @@ renamed artifact when it finishes. A version like `1.4.0+12` is written to
 start if VS Code was closed mid-build). `1.4.0` without a build number keeps
 the current one.
 
+**Build Multiple Clients…** picks several clients, Android and/or iOS,
+AAB and/or APK, test env, fail-fast and an optional version, then runs them as
+one `udara_cli build` batch (udara_cli 1.4.0+). It reports how many builds
+succeeded and opens `build/udara/`, where every artifact is collected.
+
 **Build History view** lists every recorded build from
 `.udara_build_history.json` with pass/fail icons, duration, and a tooltip with
 the error message. Reveal the artifact or copy the error inline.

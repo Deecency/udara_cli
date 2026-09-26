@@ -42,6 +42,22 @@ object UdaraNotifications {
         }).notify(project)
     }
 
+    fun batchFinished(project: Project, root: File, succeeded: Int, failed: Int, onDoctor: () -> Unit) {
+        val outputDir = File(root, "build/udara")
+        val n = group().createNotification(
+            if (failed == 0) "Batch build finished: $succeeded succeeded" else "Batch build finished: $succeeded succeeded, $failed failed",
+            if (failed == 0) "Artifacts are in build/udara/." else "See the Run tool window or the History tab for the errors.",
+            if (failed == 0) NotificationType.INFORMATION else NotificationType.WARNING,
+        )
+        if (outputDir.isDirectory) {
+            n.addAction(NotificationAction.createSimple("Open Artifacts Folder") {
+                RevealFileAction.openDirectory(outputDir.toPath())
+            })
+        }
+        if (failed > 0) n.addAction(NotificationAction.createSimple("Run Doctor") { onDoctor() })
+        n.notify(project)
+    }
+
     fun buildFinished(project: Project, client: String, exitCode: Int, artifact: String?, onDoctor: () -> Unit) {
         if (exitCode == 0) {
             val n = group().createNotification(
@@ -51,7 +67,7 @@ object UdaraNotifications {
             )
             if (artifact != null) {
                 n.addAction(NotificationAction.createSimple("Reveal Artifact") {
-                    RevealFileAction.openFile(File(artifact))
+                    RevealFileAction.openFile(File(artifact).toPath())
                 })
             }
             n.notify(project)

@@ -60,6 +60,14 @@ class Logger {
   static void success(String message) =>
       _out.writeln('  ${_c('SUCCESS', _green)} $message');
 
+  /// A failed item in a summary list (stdout, unlike [error]).
+  static void failure(String message) =>
+      _out.writeln('  ${_c('FAILED ', _red)} $message');
+
+  /// A skipped item in a summary list.
+  static void skipped(String message) =>
+      _out.writeln('  ${_c('SKIPPED', _dim)} $message');
+
   static void warning(String message) =>
       _out.writeln('  ${_c('WARNING', _yellow)} $message');
 

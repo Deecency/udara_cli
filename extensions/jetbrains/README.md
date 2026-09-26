@@ -23,7 +23,7 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
   key inside them. Secret-looking values are masked. Double-click a key to
   open the file at that line.
 - **Toolbar / right-click actions**: Run Client, Debug Client, Run Client
-  with Test Env, Build Client…, Whitelabel Project as Client…, Doctor, Clean,
+  with Test Env, Build Client…, Build Multiple Clients…, Whitelabel Project as Client…, Doctor, Clean,
   Diff Two Clients…, Set Up Clients…. The same actions live under **Tools |
   Udara Whitelabel**, where they prompt for a client.
 - **Run Client / Debug Client** create (or update) a normal Flutter run
@@ -41,6 +41,11 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
   written to `pubspec.yaml` for that build only and restored afterwards (also
   after an IDE restart if the build was interrupted). `1.4.0` without a build
   number keeps the current one.
+- **Build Multiple Clients…** opens a dialog with client checkboxes (Select
+  All / None), Android and/or iOS, AAB and/or APK, optional version, test env,
+  fail-fast and Slack, then runs them as one `udara_cli build` batch
+  (udara_cli 1.4.0+). The notification reports how many succeeded and opens
+  `build/udara/`.
 - **History tab**: every recorded build from `.udara_build_history.json`.
   Double-click a row to reveal the artifact or see the error.
 

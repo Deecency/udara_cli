@@ -53,19 +53,23 @@ class HookContext {
   final String? appName;
   final String? artifact;
 
-  HookContext withArtifact(String? path) => HookContext(
+  HookContext copyWith(
+          {String? platform, String? buildType, String? artifact}) =>
+      HookContext(
         command: command,
         projectDir: projectDir,
         client: client,
         envFile: envFile,
         isTest: isTest,
-        platform: platform,
-        buildType: buildType,
+        platform: platform ?? this.platform,
+        buildType: buildType ?? this.buildType,
         version: version,
         bundleId: bundleId,
         appName: appName,
-        artifact: path,
+        artifact: artifact ?? this.artifact,
       );
+
+  HookContext withArtifact(String? path) => copyWith(artifact: path);
 
   Map<String, String> toEnvironment(HookPoint point) => {
         'UDARA_HOOK': point.key,

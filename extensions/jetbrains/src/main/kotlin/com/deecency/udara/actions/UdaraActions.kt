@@ -8,6 +8,7 @@ import com.deecency.udara.cli.UdaraCli
 import com.deecency.udara.cli.UdaraRunner
 import com.deecency.udara.settings.UdaraSettings
 import com.deecency.udara.ui.ActiveClient
+import com.deecency.udara.ui.BatchBuildDialog
 import com.deecency.udara.ui.BuildDialog
 import com.deecency.udara.ui.ClientChooser
 import com.deecency.udara.ui.UdaraDataKeys
@@ -23,6 +24,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.util.execution.ParametersListUtil
 import java.io.File
+import java.time.LocalDateTime
 import javax.swing.Icon
 
 abstract class UdaraActionBase(text: String, description: String?, icon: Icon?) :
@@ -169,6 +171,47 @@ class BuildClientAction : UdaraActionBase(
             }
             if (!started && version != null) VersionOverride.restore(project)
         }
+}
+
+class BuildMultipleAction : UdaraActionBase(
+    "Build Multiple Clients…", "Build several clients, platforms and types in one batch", AllIcons.Actions.Compile,
+) {
+    override fun actionPerformed(e: AnActionEvent) = withRoot(e) { project, root ->
+        val preselected = e.getData(UdaraDataKeys.CLIENT)?.name
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val clients = UdaraCli.listClients(root).clients
+            ApplicationManager.getApplication().invokeLater({
+                if (clients.isEmpty()) {
+                    UdaraNotifications.warn(project, "No clients found", "Use Set Up Clients… to create some.")
+                    return@invokeLater
+                }
+                val current = PubspecVersion.read(root)
+                val dialog = BatchBuildDialog(project, clients, preselected, current)
+                if (!dialog.showAndGet()) return@invokeLater
+
+                val version = dialog.overrideVersion
+                if (version != null) VersionOverride.apply(project, root, current!!, version)
+                // History timestamps are local time without a zone, like LocalDateTime.
+                val startedAt = LocalDateTime.now().minusSeconds(1)
+                val title = "udara batch build (${dialog.buildCount} builds)${version?.let { " v$it" } ?: ""}"
+                val started = UdaraRunner.runCli(project, root, title, dialog.cliArgs()) { _ ->
+                    if (version != null) VersionOverride.restore(project)
+                    val entries = UdaraCli.readHistory(root).filter {
+                        runCatching { LocalDateTime.parse(it.timestamp).isAfter(startedAt) }.getOrDefault(false)
+                    }
+                    UdaraNotifications.batchFinished(
+                        project, root,
+                        succeeded = entries.count { it.success },
+                        failed = entries.count { !it.success },
+                    ) {
+                        UdaraRunner.runCli(project, root, "udara doctor", listOf("doctor"))
+                    }
+                    refreshPanel(e)
+                }
+                if (!started && version != null) VersionOverride.restore(project)
+            }, project.disposed)
+        }
+    }
 }
 
 class WhitelabelAction : UdaraActionBase(

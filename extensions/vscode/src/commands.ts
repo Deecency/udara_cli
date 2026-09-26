@@ -42,6 +42,7 @@ export function registerCommands(ctx: CommandContext): vscode.Disposable[] {
     reg('udara.run', (node?: ClientItem) => runClient(ctx, node, false)),
     reg('udara.runTest', (node?: ClientItem) => runClient(ctx, node, true)),
     reg('udara.build', (node?: ClientItem) => buildClient(ctx, node)),
+    reg('udara.buildMultiple', (node?: ClientItem) => buildMultiple(ctx, node)),
     reg('udara.whitelabel', (node?: ClientItem) => whitelabelClient(ctx, node)),
     reg('udara.doctor', (node?: ClientItem) => doctor(ctx, node)),
     reg('udara.clean', () => clean(ctx)),
@@ -312,24 +313,11 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     return;
   }
 
-  const currentVersion = readPubspecVersion(root);
-  const versionInput = await vscode.window.showInputBox({
-    title: `Build "${client.name}"`,
-    prompt: 'App version for this build (optional). Leave empty to keep the pubspec version.',
-    placeHolder: currentVersion ? `Leave empty for ${currentVersion}. e.g. 1.4.0 or 1.4.0+12` : 'e.g. 1.4.0 or 1.4.0+12',
-    validateInput: (v) =>
-      !v.trim() || VERSION_PATTERN.test(v.trim())
-        ? undefined
-        : 'Use x.y.z or x.y.z+build, e.g. 1.4.0 or 1.4.0+12',
-  });
-  if (versionInput === undefined) {
+  const versionChoice = await askVersion(root, `Build "${client.name}"`);
+  if (!versionChoice) {
     return; // Escape cancels the build.
   }
-  const overrideVersion = resolveVersion(versionInput, currentVersion);
-  if (overrideVersion && !currentVersion) {
-    vscode.window.showErrorMessage('pubspec.yaml has no "version:" line to override.');
-    return;
-  }
+  const { currentVersion, overrideVersion } = versionChoice;
 
   const args = [
     'build',
@@ -345,7 +333,7 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
   }`;
 
   let code: number | undefined;
-  if (overrideVersion && currentVersion && overrideVersion !== currentVersion) {
+  if (overrideVersion && currentVersion) {
     code = await withVersionOverride(ctx, root, currentVersion, overrideVersion, () =>
       runCliTask(label, args, root),
     );
@@ -379,6 +367,151 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
       await vscode.commands.executeCommand('udara.history.focus');
     }
   }
+}
+
+async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) {
+  const root = await requireRoot(ctx);
+  if (!root || !(await ensureCli(ctx))) {
+    return;
+  }
+  const listing = await ctx.clients.ensureLoaded();
+  if (listing.clients.length === 0) {
+    vscode.window.showInformationMessage('No clients found. Create some first.');
+    return;
+  }
+
+  const title = 'Build Multiple Clients';
+  const clients = await vscode.window.showQuickPick(
+    listing.clients.map((c) => ({
+      label: c.name,
+      description: [c.appName, c.bundleId].filter(Boolean).join(' · '),
+      picked: c.name === node?.client.name,
+    })),
+    { title, placeHolder: 'Select the clients to build (Space to toggle)', canPickMany: true },
+  );
+  if (!clients || clients.length === 0) {
+    return;
+  }
+
+  const platforms = await vscode.window.showQuickPick(
+    [
+      { label: 'Android', value: 'android', picked: true },
+      { label: 'iOS', value: 'ios', picked: false },
+    ],
+    { title, placeHolder: 'Platforms', canPickMany: true },
+  );
+  if (!platforms || platforms.length === 0) {
+    return;
+  }
+
+  let types: string[] = [];
+  if (platforms.some((p) => p.value === 'android')) {
+    const { defaultBuildType } = getConfig();
+    const picked = await vscode.window.showQuickPick(
+      [
+        { label: 'AAB (app bundle)', value: 'aab', picked: defaultBuildType === 'aab' },
+        { label: 'APK', value: 'apk', picked: defaultBuildType === 'apk' },
+      ],
+      { title, placeHolder: 'Android build types', canPickMany: true },
+    );
+    if (!picked || picked.length === 0) {
+      return;
+    }
+    types = picked.map((t) => t.value);
+  }
+
+  const options = await vscode.window.showQuickPick(
+    [
+      { label: 'Use test environment (.env_test)', value: '--test', picked: false },
+      { label: 'Stop at the first failed build', value: '--fail-fast', picked: false },
+    ],
+    { title, placeHolder: 'Options (optional, press Enter to continue)', canPickMany: true },
+  );
+  if (!options) {
+    return;
+  }
+
+  const versionChoice = await askVersion(root, title);
+  if (!versionChoice) {
+    return;
+  }
+  const { currentVersion, overrideVersion } = versionChoice;
+
+  const args = [
+    'build',
+    '--client',
+    clients.map((c) => c.label).join(','),
+    '--platform',
+    platforms.map((p) => p.value).join(','),
+    ...(types.length ? ['--type', types.join(',')] : []),
+    ...options.map((o) => o.value),
+  ];
+  const buildCount =
+    clients.length * (types.length + (platforms.some((p) => p.value === 'ios') ? 1 : 0));
+  const label = `batch build (${buildCount} builds)${overrideVersion ? ` v${overrideVersion}` : ''}`;
+
+  // History timestamps are local ISO strings without a zone; Date parses them as local.
+  const startedAt = Date.now() - 1000;
+  const run = () => runCliTask(label, args, root);
+  if (overrideVersion && currentVersion) {
+    await withVersionOverride(ctx, root, currentVersion, overrideVersion, run);
+  } else {
+    await run();
+  }
+  ctx.history.refresh();
+  ctx.clients.refresh();
+
+  const entries = readHistory(root).filter((e) => Date.parse(e.timestamp) >= startedAt);
+  const succeeded = entries.filter((e) => e.success).length;
+  const failed = entries.length - succeeded;
+  const outputDir = path.join(root, 'build', 'udara');
+  const actions = [
+    ...(fs.existsSync(outputDir) ? ['Open Artifacts Folder'] : []),
+    'Show History',
+  ];
+  const message = `Batch build finished: ${succeeded} succeeded${failed ? `, ${failed} failed` : ''}.`;
+  const choice = failed
+    ? await vscode.window.showWarningMessage(message, ...actions)
+    : await vscode.window.showInformationMessage(message, ...actions);
+  if (choice === 'Open Artifacts Folder') {
+    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
+  } else if (choice === 'Show History') {
+    await vscode.commands.executeCommand('udara.history.focus');
+  }
+}
+
+/**
+ * Asks for an optional app version. Returns undefined when the user cancels,
+ * otherwise the pubspec version and the version to build (if different).
+ */
+async function askVersion(
+  root: string,
+  title: string,
+): Promise<{ currentVersion?: string; overrideVersion?: string } | undefined> {
+  const currentVersion = readPubspecVersion(root);
+  const input = await vscode.window.showInputBox({
+    title,
+    prompt: 'App version for this build (optional). Leave empty to keep the pubspec version.',
+    placeHolder: currentVersion
+      ? `Leave empty for ${currentVersion}. e.g. 1.4.0 or 1.4.0+12`
+      : 'e.g. 1.4.0 or 1.4.0+12',
+    validateInput: (v) =>
+      !v.trim() || VERSION_PATTERN.test(v.trim())
+        ? undefined
+        : 'Use x.y.z or x.y.z+build, e.g. 1.4.0 or 1.4.0+12',
+  });
+  if (input === undefined) {
+    return undefined;
+  }
+  const resolved = resolveVersion(input, currentVersion);
+  if (resolved && !currentVersion) {
+    vscode.window.showErrorMessage('pubspec.yaml has no "version:" line to override.');
+    return undefined;
+  }
+  return {
+    currentVersion,
+    overrideVersion: resolved && resolved !== currentVersion ? resolved : undefined,
+  };
 }
 
 async function doctor(ctx: CommandContext, node: ClientItem | undefined) {
