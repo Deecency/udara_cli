@@ -37,15 +37,18 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
   (type `r`, `R` or `q` and press Enter for reload, restart or quit).
 - **Build Client…** opens a dialog for platform, Android build type, an
   optional **app version**, test env and Slack, runs `udara_cli build`, and
-  notifies you with a *Reveal Artifact* link. A version like `1.4.0+12` is
-  written to `pubspec.yaml` for that build only and restored afterwards (also
-  after an IDE restart if the build was interrupted). `1.4.0` without a build
-  number keeps the current one.
-- **Build Multiple Clients…** opens a dialog with client checkboxes (Select
-  All / None), Android and/or iOS, AAB and/or APK, optional version, test env,
-  fail-fast and Slack, then runs them as one `udara_cli build` batch
-  (udara_cli 1.4.0+). The notification reports how many succeeded and opens
-  `build/udara/`.
+  notifies you with a *Reveal Artifact* link. The version (e.g. `1.4.0+12`) is
+  passed to the CLI; `pubspec.yaml` is not edited.
+- **Build Multiple Clients…** opens a table of clients with a checkbox and
+  a **version per client** (plus "apply to selected"), Android and/or iOS,
+  AAB and/or APK, how many to **build at the same time** (Auto or 1-4), test
+  env, fail-fast and Slack, then runs them as one `udara_cli build` batch.
+  The notification reports how many succeeded and opens `build/udara/` or the
+  per-job logs.
+- **Progress:** builds open the Udara tool window with a progress bar showing
+  percent, ETA and each running job's step. Stop the build from the Run tool
+  window to cancel every job.
+- Requires udara_cli 1.4.0 or newer; the plugin tells you if yours is older.
 - **History tab**: every recorded build from `.udara_build_history.json`.
   Double-click a row to reveal the artifact or see the error.
 

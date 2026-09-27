@@ -248,3 +248,34 @@ const SECRET_PATTERN = /(SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE|API_KEY|_KEY$|^KEY
 export function isSecretKey(key: string): boolean {
   return SECRET_PATTERN.test(key);
 }
+
+let cachedVersion: { cliPath: string; version: string | undefined } | undefined;
+
+/** The installed udara_cli version, e.g. "1.4.0" (cached per cliPath). */
+export async function cliVersion(root: string): Promise<string | undefined> {
+  const { cliPath } = getConfig();
+  if (cachedVersion?.cliPath === cliPath) {
+    return cachedVersion.version;
+  }
+  let version: string | undefined;
+  try {
+    const out = await execFile(cliPath, ['--version'], root);
+    version = /(\d+\.\d+\.\d+)/.exec(out)?.[1];
+  } catch {
+    version = undefined;
+  }
+  cachedVersion = { cliPath, version };
+  return version;
+}
+
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) {
+      return d;
+    }
+  }
+  return 0;
+}

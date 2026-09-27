@@ -1,16 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ClientInfo, getConfig, listDevices, readHistory } from './cli';
+import { ClientInfo, cliVersion, compareVersions, getConfig, listDevices, readHistory } from './cli';
 import { ClientItem, ClientsTreeProvider, EnvEntryItem, EnvFileItem } from './clientsTree';
 import { HistoryItem, HistoryTreeProvider } from './historyTree';
-import {
-  readPubspecVersion,
-  resolveVersion,
-  VERSION_PATTERN,
-  writePubspecVersion,
-  pubspecPath,
-} from './pubspecVersion';
+import { newProgressFile, withBuildProgress } from './buildProgress';
+import { readPubspecVersion, VERSION_PATTERN, writePubspecVersion } from './pubspecVersion';
 import { buildCommandLine, runCliTask, runInTerminal } from './runner';
 
 /** workspaceState key holding the version to put back if VS Code closes mid-build. */
@@ -71,15 +66,23 @@ async function requireRoot(ctx: CommandContext): Promise<string | undefined> {
   return root;
 }
 
+/** The oldest udara_cli with every option this extension passes. */
+const MIN_CLI_VERSION = '1.4.0';
+
 async function ensureCli(ctx: CommandContext): Promise<boolean> {
   const listing = await ctx.clients.ensureLoaded();
-  if (listing.source === 'cli') {
-    return true;
-  }
   const { cliPath } = getConfig();
-  const tooOld = /--json/.test(listing.cliError ?? '');
+  let tooOld = /--json/.test(listing.cliError ?? '');
+  if (listing.source === 'cli') {
+    const root = ctx.getRoot();
+    const version = root ? await cliVersion(root) : undefined;
+    if (!version || compareVersions(version, MIN_CLI_VERSION) >= 0) {
+      return true;
+    }
+    tooOld = true;
+  }
   const message = tooOld
-    ? 'udara_cli is too old for this extension (needs 1.2.0+ with "list-clients --json"). Upgrade it.'
+    ? `udara_cli is too old for this extension (needs ${MIN_CLI_VERSION} or newer). Upgrade it.`
     : `udara_cli could not be run as "${cliPath}". Install it or point "udara.cliPath" at it.`;
   const choice = await vscode.window.showWarningMessage(
     message,
@@ -276,13 +279,14 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
   if (!client) {
     return;
   }
+  const title = `Build "${client.name}"`;
 
   const platform = await vscode.window.showQuickPick(
     [
       { label: '$(device-mobile) Android', value: 'android' },
       { label: '$(device-mobile) iOS', value: 'ios' },
     ],
-    { placeHolder: 'Platform' },
+    { title, placeHolder: 'Platform' },
   );
   if (!platform) {
     return;
@@ -295,7 +299,7 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
       { label: 'AAB (app bundle)', value: 'aab' },
       { label: 'APK', value: 'apk' },
     ].sort((a) => (a.value === defaultBuildType ? -1 : 1));
-    const picked = await vscode.window.showQuickPick(types, { placeHolder: 'Build type' });
+    const picked = await vscode.window.showQuickPick(types, { title, placeHolder: 'Build type' });
     if (!picked) {
       return;
     }
@@ -307,17 +311,16 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
       { label: 'Production (.env)', isTest: false },
       { label: 'Test (.env_test)', isTest: true },
     ],
-    { placeHolder: 'Environment' },
+    { title, placeHolder: 'Environment' },
   );
   if (!env) {
     return;
   }
 
-  const versionChoice = await askVersion(root, `Build "${client.name}"`);
-  if (!versionChoice) {
+  const version = await askVersion(root, title, `App version for "${client.name}" (optional)`);
+  if (version === undefined) {
     return; // Escape cancels the build.
   }
-  const { currentVersion, overrideVersion } = versionChoice;
 
   const args = [
     'build',
@@ -327,19 +330,10 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     platform.value,
     ...(type ? ['--type', type] : []),
     ...(env.isTest ? ['--test'] : []),
+    ...(version ? ['--build-version', version] : []),
   ];
-  const label = `build ${client.name} ${platform.value}${type ? ` ${type}` : ''}${
-    overrideVersion ? ` v${overrideVersion}` : ''
-  }`;
-
-  let code: number | undefined;
-  if (overrideVersion && currentVersion) {
-    code = await withVersionOverride(ctx, root, currentVersion, overrideVersion, () =>
-      runCliTask(label, args, root),
-    );
-  } else {
-    code = await runCliTask(label, args, root);
-  }
+  const label = `build ${client.name} ${platform.value}${type ? ` ${type}` : ''}${version ? ` v${version}` : ''}`;
+  const code = await runTrackedBuild(root, label, `Building ${client.name}`, args);
   ctx.history.refresh();
   ctx.clients.refresh();
 
@@ -347,7 +341,7 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     const latest = readHistory(root)[0];
     const artifact = latest?.artifact;
     const choice = await vscode.window.showInformationMessage(
-      `Build for "${client.name}"${overrideVersion ? ` v${overrideVersion}` : ''} succeeded.${
+      `Build for "${client.name}"${latest?.version ? ` v${latest.version}` : ''} succeeded.${
         artifact ? ` ${path.basename(artifact)}` : ''
       }`,
       ...(artifact ? ['Reveal Artifact'] : []),
@@ -355,7 +349,7 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     if (choice && artifact) {
       await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(artifact));
     }
-  } else {
+  } else if (code !== CANCELLED) {
     const choice = await vscode.window.showErrorMessage(
       `Build for "${client.name}" failed (exit code ${code ?? '?'}).`,
       'Run Doctor',
@@ -420,6 +414,34 @@ async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) 
     types = picked.map((t) => t.value);
   }
 
+  const versions = await askBatchVersions(root, title, clients.map((c) => c.label));
+  if (versions === undefined) {
+    return;
+  }
+
+  // One job per client and platform; these are what run in parallel.
+  const jobCount = clients.length * platforms.length;
+  let parallel = '1';
+  if (jobCount > 1) {
+    const choice = await vscode.window.showQuickPick(
+      [
+        { label: 'Auto', description: 'Recommended: 1 to 4 at a time, based on RAM and CPU', value: 'auto' },
+        { label: '1', description: 'One at a time', value: '1' },
+        { label: '2', description: 'Two at a time', value: '2' },
+        { label: '3', description: 'Three at a time', value: '3' },
+        { label: '4', description: 'Four at a time', value: '4' },
+      ].filter((o) => o.value === 'auto' || Number(o.value) <= jobCount),
+      {
+        title,
+        placeHolder: `How many of the ${jobCount} jobs (client × platform) should build at the same time?`,
+      },
+    );
+    if (!choice) {
+      return;
+    }
+    parallel = choice.value;
+  }
+
   const options = await vscode.window.showQuickPick(
     [
       { label: 'Use test environment (.env_test)', value: '--test', picked: false },
@@ -431,12 +453,6 @@ async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) 
     return;
   }
 
-  const versionChoice = await askVersion(root, title);
-  if (!versionChoice) {
-    return;
-  }
-  const { currentVersion, overrideVersion } = versionChoice;
-
   const args = [
     'build',
     '--client',
@@ -444,22 +460,24 @@ async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) 
     '--platform',
     platforms.map((p) => p.value).join(','),
     ...(types.length ? ['--type', types.join(',')] : []),
+    ...(versions.length ? ['--build-version', versions.join(',')] : []),
+    '--parallel',
+    parallel,
     ...options.map((o) => o.value),
   ];
   const buildCount =
     clients.length * (types.length + (platforms.some((p) => p.value === 'ios') ? 1 : 0));
-  const label = `batch build (${buildCount} builds)${overrideVersion ? ` v${overrideVersion}` : ''}`;
+  const label = `batch build (${buildCount} builds)`;
 
   // History timestamps are local ISO strings without a zone; Date parses them as local.
   const startedAt = Date.now() - 1000;
-  const run = () => runCliTask(label, args, root);
-  if (overrideVersion && currentVersion) {
-    await withVersionOverride(ctx, root, currentVersion, overrideVersion, run);
-  } else {
-    await run();
-  }
+  const code = await runTrackedBuild(root, label, `Building ${buildCount} builds`, args);
   ctx.history.refresh();
   ctx.clients.refresh();
+  if (code === CANCELLED) {
+    vscode.window.showWarningMessage('Batch build cancelled. Finished artifacts are in build/udara/.');
+    return;
+  }
 
   const entries = readHistory(root).filter((e) => Date.parse(e.timestamp) >= startedAt);
   const succeeded = entries.filter((e) => e.success).length;
@@ -467,6 +485,7 @@ async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) 
   const outputDir = path.join(root, 'build', 'udara');
   const actions = [
     ...(fs.existsSync(outputDir) ? ['Open Artifacts Folder'] : []),
+    ...(failed ? ['Open Logs'] : []),
     'Show History',
   ];
   const message = `Batch build finished: ${succeeded} succeeded${failed ? `, ${failed} failed` : ''}.`;
@@ -475,43 +494,90 @@ async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) 
     : await vscode.window.showInformationMessage(message, ...actions);
   if (choice === 'Open Artifacts Folder') {
     await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
+  } else if (choice === 'Open Logs') {
+    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(path.join(outputDir, 'logs')));
   } else if (choice === 'Show History') {
     await vscode.commands.executeCommand('udara.history.focus');
   }
 }
 
+/** Exit code the CLI uses when a build is cancelled. */
+const CANCELLED = 130;
+
 /**
- * Asks for an optional app version. Returns undefined when the user cancels,
- * otherwise the pubspec version and the version to build (if different).
+ * Runs a build task with a progress notification (percent, ETA, running
+ * jobs) fed by the CLI's --progress-file. Cancelling the notification stops
+ * the task, which stops every worker the CLI started.
  */
-async function askVersion(
+async function runTrackedBuild(
   root: string,
+  label: string,
   title: string,
-): Promise<{ currentVersion?: string; overrideVersion?: string } | undefined> {
+  args: string[],
+): Promise<number | undefined> {
+  const progressFile = newProgressFile();
+  return withBuildProgress(title, progressFile, (onCancel) =>
+    runCliTask(label, [...args, '--progress-file', progressFile], root, (execution) =>
+      onCancel(() => execution.terminate()),
+    ),
+  );
+}
+
+/**
+ * Asks for an optional version. Returns undefined when cancelled, '' to keep
+ * the pubspec version, or the version to pass to --build-version.
+ */
+async function askVersion(root: string, title: string, prompt: string): Promise<string | undefined> {
   const currentVersion = readPubspecVersion(root);
   const input = await vscode.window.showInputBox({
     title,
-    prompt: 'App version for this build (optional). Leave empty to keep the pubspec version.',
-    placeHolder: currentVersion
-      ? `Leave empty for ${currentVersion}. e.g. 1.4.0 or 1.4.0+12`
-      : 'e.g. 1.4.0 or 1.4.0+12',
+    prompt: `${prompt}. Leave empty to keep the pubspec version. Without +build number, the current one is kept.`,
+    placeHolder: currentVersion ? `Leave empty for ${currentVersion}. e.g. 1.4.0 or 1.4.0+12` : 'e.g. 1.4.0 or 1.4.0+12',
     validateInput: (v) =>
-      !v.trim() || VERSION_PATTERN.test(v.trim())
-        ? undefined
-        : 'Use x.y.z or x.y.z+build, e.g. 1.4.0 or 1.4.0+12',
+      !v.trim() || VERSION_PATTERN.test(v.trim()) ? undefined : 'Use x.y.z or x.y.z+build, e.g. 1.4.0 or 1.4.0+12',
   });
-  if (input === undefined) {
+  return input === undefined ? undefined : input.trim();
+}
+
+/**
+ * Asks how to version a batch. Returns undefined when cancelled, otherwise
+ * the --build-version values (empty list keeps the pubspec version).
+ */
+async function askBatchVersions(
+  root: string,
+  title: string,
+  clients: string[],
+): Promise<string[] | undefined> {
+  const current = readPubspecVersion(root);
+  const mode = await vscode.window.showQuickPick(
+    [
+      { label: 'Keep the pubspec version', description: current ? `v${current} for every client` : '', value: 'keep' },
+      { label: 'Same version for all clients…', value: 'same' },
+      { label: 'Different version per client…', value: 'each' },
+    ],
+    { title, placeHolder: 'App version' },
+  );
+  if (!mode) {
     return undefined;
   }
-  const resolved = resolveVersion(input, currentVersion);
-  if (resolved && !currentVersion) {
-    vscode.window.showErrorMessage('pubspec.yaml has no "version:" line to override.');
-    return undefined;
+  if (mode.value === 'keep') {
+    return [];
   }
-  return {
-    currentVersion,
-    overrideVersion: resolved && resolved !== currentVersion ? resolved : undefined,
-  };
+  if (mode.value === 'same') {
+    const v = await askVersion(root, title, 'App version for every client');
+    return v === undefined ? undefined : v ? [v] : [];
+  }
+  const values: string[] = [];
+  for (const client of clients) {
+    const v = await askVersion(root, `${title}: ${client}`, `App version for "${client}"`);
+    if (v === undefined) {
+      return undefined;
+    }
+    if (v) {
+      values.push(`${client}=${v}`);
+    }
+  }
+  return values;
 }
 
 async function doctor(ctx: CommandContext, node: ClientItem | undefined) {
@@ -672,37 +738,6 @@ async function installCli(ctx: CommandContext) {
   vscode.window.showInformationMessage(
     'Installing udara_cli. Make sure ~/.pub-cache/bin is on your PATH, then click Refresh.',
   );
-}
-
-/**
- * Temporarily sets pubspec.yaml's version for one build. udara_cli reads the
- * version from pubspec (artifact name, history, Slack) and Flutter builds
- * with it, so no CLI flag is needed. The original value is always put back;
- * it is also persisted so activation can restore it after a crash.
- */
-async function withVersionOverride<T>(
-  ctx: CommandContext,
-  root: string,
-  original: string,
-  override: string,
-  action: () => Thenable<T> | Promise<T>,
-): Promise<T> {
-  // Don't clobber unsaved edits to pubspec.yaml.
-  const open = vscode.workspace.textDocuments.find(
-    (d) => d.uri.fsPath === pubspecPath(root) && d.isDirty,
-  );
-  if (open) {
-    await open.save();
-  }
-
-  const pending: PendingVersionRestore = { root, original, override };
-  await ctx.context.workspaceState.update(PENDING_VERSION_KEY, pending);
-  writePubspecVersion(root, override);
-  try {
-    return await action();
-  } finally {
-    restorePendingVersion(ctx.context);
-  }
 }
 
 /** Puts back a version overridden by an interrupted build. Safe to call anytime. */

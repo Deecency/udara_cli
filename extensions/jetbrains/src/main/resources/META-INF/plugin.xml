@@ -18,11 +18,13 @@
     ]]></description>
 
     <change-notes><![CDATA[
-    <h3>0.1.2</h3>
+    <h3>0.2.0</h3>
     <ul>
-      <li>Build Multiple Clients…: pick several clients, Android and/or iOS, AAB and/or APK, and build them all in one
-          batch (requires udara_cli 1.4.0). A failed build doesn't stop the rest unless you ask it to; artifacts
-          are collected in build/udara/.</li>
+      <li>Requires udara_cli 1.4.0 or newer (the plugin tells you if yours is older).</li>
+      <li>Build Multiple Clients…: pick clients in a table with a version per client, Android and/or iOS, AAB and/or
+          APK, and how many to build at the same time. Parallel jobs run in isolated copies of the project.</li>
+      <li>Build progress in the Udara tool window: percent, ETA and each running job's step.</li>
+      <li>Build Client… passes the optional version to the CLI instead of editing pubspec.yaml.</li>
     </ul>
     <h3>0.1.1</h3>
     <ul>

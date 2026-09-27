@@ -48,6 +48,36 @@ object UdaraCli {
         }
     }
 
+    /** The oldest udara_cli with every option this plugin passes. */
+    const val MIN_CLI_VERSION = "1.4.0"
+
+    @Volatile
+    private var cachedVersion: Pair<String, String?>? = null
+
+    /** Installed udara_cli version, e.g. "1.4.0" (cached per configured path). Call off the EDT. */
+    fun cliVersion(root: File): String? {
+        val cli = UdaraSettings.getInstance().state.cliPath
+        cachedVersion?.let { (path, version) -> if (path == cli) return version }
+        val version = try {
+            val output = CapturingProcessHandler(commandLine(root, cli, listOf("--version"))).runProcess(30_000)
+            Regex("(\\d+\\.\\d+\\.\\d+)").find(output.stdout)?.groupValues?.get(1)
+        } catch (_: Exception) {
+            null
+        }
+        cachedVersion = cli to version
+        return version
+    }
+
+    fun isAtLeast(version: String, minimum: String): Boolean {
+        val a = version.split('.').map { it.toIntOrNull() ?: 0 }
+        val b = minimum.split('.').map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until 3) {
+            val d = a.getOrElse(i) { 0 } - b.getOrElse(i) { 0 }
+            if (d != 0) return d > 0
+        }
+        return true
+    }
+
     fun readHistory(root: File): List<HistoryEntry> {
         val file = File(root, HISTORY_FILE)
         if (!file.isFile) return emptyList()

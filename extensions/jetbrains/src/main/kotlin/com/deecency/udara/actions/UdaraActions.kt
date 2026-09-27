@@ -3,7 +3,6 @@ package com.deecency.udara.actions
 import com.deecency.udara.cli.ClientInfo
 import com.deecency.udara.cli.PubspecVersion
 import com.deecency.udara.run.FlutterRunConfigs
-import com.deecency.udara.run.VersionOverride
 import com.deecency.udara.cli.UdaraCli
 import com.deecency.udara.cli.UdaraRunner
 import com.deecency.udara.settings.UdaraSettings
@@ -13,6 +12,7 @@ import com.deecency.udara.ui.BuildDialog
 import com.deecency.udara.ui.ClientChooser
 import com.deecency.udara.ui.UdaraDataKeys
 import com.deecency.udara.ui.UdaraNotifications
+import com.deecency.udara.ui.UdaraPanel
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -21,6 +21,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.util.execution.ParametersListUtil
 import java.io.File
@@ -55,8 +56,22 @@ abstract class UdaraActionBase(text: String, description: String?, icon: Icon?) 
         }
     }
 
-    protected fun refreshPanel(e: AnActionEvent) {
-        e.getData(UdaraDataKeys.PANEL)?.scheduleRefresh()
+    protected fun refreshPanel(project: Project) {
+        UdaraPanel.forProject(project)?.scheduleRefresh()
+    }
+
+    /** Checks the installed CLI is new enough (off the UI thread), then runs [then] on the UI thread. */
+    protected fun requireCliVersion(project: Project, root: File, then: () -> Unit) {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val version = UdaraCli.cliVersion(root)
+            ApplicationManager.getApplication().invokeLater({
+                if (version != null && !UdaraCli.isAtLeast(version, UdaraCli.MIN_CLI_VERSION)) {
+                    UdaraNotifications.cliTooOld(project, version)
+                } else {
+                    then()
+                }
+            }, project.disposed)
+        }
     }
 }
 
@@ -155,62 +170,113 @@ class BuildClientAction : UdaraActionBase(
 ) {
     override fun actionPerformed(e: AnActionEvent) =
         withClient(e, "Build which client?") { project, root, client ->
-            val current = PubspecVersion.read(root)
-            val dialog = BuildDialog(project, client.name, current)
-            if (!dialog.showAndGet()) return@withClient
-            val version = dialog.overrideVersion
-            if (version != null) VersionOverride.apply(project, root, current!!, version)
-            val title = "udara build ${client.name} ${dialog.platform}${version?.let { " v$it" } ?: ""}"
-            val started = UdaraRunner.runCli(project, root, title, dialog.cliArgs()) { code ->
-                if (version != null) VersionOverride.restore(project)
-                val artifact = UdaraCli.readHistory(root).firstOrNull()?.artifact
-                UdaraNotifications.buildFinished(project, client.name, code, artifact) {
-                    UdaraRunner.runCli(project, root, "udara doctor ${client.name}", listOf("doctor", "--client", client.name))
+            requireCliVersion(project, root) {
+                val dialog = BuildDialog(project, client.name, PubspecVersion.read(root))
+                if (!dialog.showAndGet()) return@requireCliVersion
+                val version = dialog.version?.let { " v$it" } ?: ""
+                TrackedBuild.run(
+                    project, root,
+                    title = "udara build ${client.name} ${dialog.platform}$version",
+                    label = "Building ${client.name} (${dialog.platform})$version",
+                    args = dialog.cliArgs(),
+                ) { code ->
+                    if (code == TrackedBuild.CANCELLED) {
+                        UdaraNotifications.info(project, "Build for \"${client.name}\" cancelled")
+                    } else {
+                        val artifact = UdaraCli.readHistory(root).firstOrNull()?.artifact
+                        UdaraNotifications.buildFinished(project, client.name, code, artifact) {
+                            UdaraRunner.runCli(project, root, "udara doctor ${client.name}", listOf("doctor", "--client", client.name))
+                        }
+                    }
+                    refreshPanel(project)
                 }
-                refreshPanel(e)
             }
-            if (!started && version != null) VersionOverride.restore(project)
         }
 }
 
 class BuildMultipleAction : UdaraActionBase(
-    "Build Multiple Clients…", "Build several clients, platforms and types in one batch", AllIcons.Actions.Compile,
+    "Build Multiple Clients…", "Build several clients, platforms and types, in parallel", AllIcons.Actions.Compile,
 ) {
     override fun actionPerformed(e: AnActionEvent) = withRoot(e) { project, root ->
         val preselected = e.getData(UdaraDataKeys.CLIENT)?.name
         ApplicationManager.getApplication().executeOnPooledThread {
             val clients = UdaraCli.listClients(root).clients
+            val version = UdaraCli.cliVersion(root)
             ApplicationManager.getApplication().invokeLater({
+                if (version != null && !UdaraCli.isAtLeast(version, UdaraCli.MIN_CLI_VERSION)) {
+                    UdaraNotifications.cliTooOld(project, version)
+                    return@invokeLater
+                }
                 if (clients.isEmpty()) {
                     UdaraNotifications.warn(project, "No clients found", "Use Set Up Clients… to create some.")
                     return@invokeLater
                 }
-                val current = PubspecVersion.read(root)
-                val dialog = BatchBuildDialog(project, clients, preselected, current)
+                val dialog = BatchBuildDialog(project, clients, preselected, PubspecVersion.read(root))
                 if (!dialog.showAndGet()) return@invokeLater
 
-                val version = dialog.overrideVersion
-                if (version != null) VersionOverride.apply(project, root, current!!, version)
                 // History timestamps are local time without a zone, like LocalDateTime.
                 val startedAt = LocalDateTime.now().minusSeconds(1)
-                val title = "udara batch build (${dialog.buildCount} builds)${version?.let { " v$it" } ?: ""}"
-                val started = UdaraRunner.runCli(project, root, title, dialog.cliArgs()) { _ ->
-                    if (version != null) VersionOverride.restore(project)
-                    val entries = UdaraCli.readHistory(root).filter {
-                        runCatching { LocalDateTime.parse(it.timestamp).isAfter(startedAt) }.getOrDefault(false)
+                TrackedBuild.run(
+                    project, root,
+                    title = "udara batch build (${dialog.buildCount} builds)",
+                    label = "Building ${dialog.buildCount} builds",
+                    args = dialog.cliArgs(),
+                ) { code ->
+                    if (code == TrackedBuild.CANCELLED) {
+                        UdaraNotifications.info(project, "Batch build cancelled", "Finished artifacts are in build/udara/.")
+                    } else {
+                        val entries = UdaraCli.readHistory(root).filter {
+                            runCatching { LocalDateTime.parse(it.timestamp).isAfter(startedAt) }.getOrDefault(false)
+                        }
+                        UdaraNotifications.batchFinished(
+                            project, root,
+                            succeeded = entries.count { it.success },
+                            failed = entries.count { !it.success },
+                        ) {
+                            UdaraRunner.runCli(project, root, "udara doctor", listOf("doctor"))
+                        }
                     }
-                    UdaraNotifications.batchFinished(
-                        project, root,
-                        succeeded = entries.count { it.success },
-                        failed = entries.count { !it.success },
-                    ) {
-                        UdaraRunner.runCli(project, root, "udara doctor", listOf("doctor"))
-                    }
-                    refreshPanel(e)
+                    refreshPanel(project)
                 }
-                if (!started && version != null) VersionOverride.restore(project)
             }, project.disposed)
         }
+    }
+}
+
+/**
+ * Runs a build with its progress (percent, ETA, per-job steps) shown in the
+ * Udara tool window, fed by the CLI's --progress-file.
+ */
+object TrackedBuild {
+    /** Exit code the CLI uses when a build is cancelled. */
+    const val CANCELLED = 130
+
+    fun run(
+        project: Project,
+        root: File,
+        title: String,
+        label: String,
+        args: List<String>,
+        onFinished: (Int) -> Unit,
+    ): Boolean {
+        val progressFile = File(System.getProperty("java.io.tmpdir"), "udara-progress-${System.nanoTime()}.json")
+        ToolWindowManager.getInstance(project).getToolWindow("Udara")?.show {
+            UdaraPanel.forProject(project)?.buildProgress?.start(progressFile, label)
+        }
+        val started = UdaraRunner.runCli(project, root, title, args + listOf("--progress-file", progressFile.path)) { code ->
+            UdaraPanel.forProject(project)?.buildProgress?.stop(
+                when (code) {
+                    0 -> "Finished"
+                    CANCELLED -> "Cancelled"
+                    else -> "Finished with errors (exit code $code)"
+                },
+            )
+            progressFile.delete()
+            File("${progressFile.path}.tmp").delete()
+            onFinished(code)
+        }
+        if (!started) UdaraPanel.forProject(project)?.buildProgress?.stop("Could not start udara_cli")
+        return started
     }
 }
 
@@ -235,7 +301,7 @@ class WhitelabelAction : UdaraActionBase(
                 } else {
                     UdaraNotifications.error(project, "Whitelabel failed", "Exit code $code. See the Run tool window.")
                 }
-                refreshPanel(e)
+                refreshPanel(project)
             }
         }
 }
@@ -263,7 +329,7 @@ class CleanAction : UdaraActionBase(
                 ActiveClient.set(project, null)
                 UdaraNotifications.info(project, "Project restored and cleaned")
             }
-            refreshPanel(e)
+            refreshPanel(project)
         }
     }
 }
@@ -300,7 +366,7 @@ class SetupClientsAction : UdaraActionBase(
         UdaraRunner.runCli(project, root, "udara setup clients", listOf("setup", "--clients", names.joinToString(","))) { code ->
             if (code == 0) UdaraNotifications.info(project, "Created clients: ${names.joinToString(", ")}",
                 "Replace the placeholder logos and edit each .env.")
-            refreshPanel(e)
+            refreshPanel(project)
         }
     }
 }

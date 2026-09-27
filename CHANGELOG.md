@@ -2,13 +2,19 @@
 
 * **NEW**:
 
-- Batch builds: `--client`, `--platform` and `--type` accept several values (comma-separated or repeated), and `--all-clients` builds every client. Each client is branded once, every requested target is built from it (e.g. AAB + APK + IPA), and the project is restored before the next client. A failed build doesn't stop the batch unless `--fail-fast` is given; a summary table lists every build, each gets its own history entry and Slack summary, and the exit code is non-zero if any failed.
-- The IDE extensions (VS Code 0.1.2, Android Studio plugin 0.1.2) add **Build Multiple Clients…** on top of this.
+- Batch builds: `--client`, `--platform` and `--type` accept several values (comma-separated or repeated), and `--all-clients` builds every client.
+- Parallel builds: batches are split into jobs of one client on one platform and run `--parallel N` at a time (`auto` by default: 1-4 based on RAM and CPU). Each parallel job runs in its own synced copy of the project under `~/.udara_cli/workspaces/`, so builds never touch each other's files or your working copy; the copies keep their build, Gradle and CocoaPods caches. `udara_cli clean --workspaces` deletes them.
+- Per-client versions: `--build-version 1.4.0+12` or `--build-version acme=1.4.0+12,beta=2.0.0` sets the version for a build without editing pubspec.yaml (passed to Flutter as `--build-name`/`--build-number`; without `+n` the pubspec build number is kept).
+- Live progress: a redrawing terminal view with overall percent, ETA and each running job's step (plain status lines in CI and IDE consoles). ETAs are estimated from the project's build history. `--progress-file <path>` writes a JSON snapshot for tools.
+- Per-job logs in `build/udara/logs/`; the summary shows the lines around each failure.
+- Cancel with Ctrl+C or a termination/hang-up signal (IDE stop buttons): every worker and every Flutter/Gradle/Xcode process it started is stopped, finished artifacts are kept, and a single build restores the project immediately. Exit code 130.
+- `--fail-fast` stops the whole batch at the first failure.
+- The IDE extensions (VS Code 0.2.0, Android Studio plugin 0.2.0) add Build Multiple Clients… with per-client versions, parallelism and progress bars on top of this.
 
 * **CHANGES**:
 
-- Artifacts are now collected in `build/udara/<client>/<client>_v<version>.<type>` instead of being renamed inside Flutter's output folders, so a later build (another client in a batch, or the next run) can't overwrite or clean them up.
-- In `after_branding` hooks of a multi-target build, `UDARA_PLATFORM` and `UDARA_BUILD_TYPE` list all targets (e.g. `android,ios`); `after_build` hooks still get the single target.
+- Artifacts are collected in `build/udara/<client>/<client>_v<version>.<type>` instead of being renamed inside Flutter's output folders, so a later build can't overwrite or clean them up.
+- In `after_branding` hooks of a multi-target job, `UDARA_PLATFORM` and `UDARA_BUILD_TYPE` list all targets; `after_build` hooks get the single target.
 
 ## 1.3.0
 

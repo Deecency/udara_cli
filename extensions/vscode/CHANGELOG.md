@@ -1,10 +1,17 @@
 # Changelog
 
-## 0.1.2
+## 0.2.0
+
+Requires udara_cli 1.4.0 or newer (the extension tells you if it's older).
 
 - Build Multiple Clients…: pick several clients, Android and/or iOS, AAB
-  and/or APK, and build them all in one batch (requires udara_cli 1.4.0).
-  Reports how many succeeded and opens the build/udara/ artifacts folder.
+  and/or APK, and build them in one batch, **in parallel** (Auto, or 1-4 at a
+  time). Each client can get its **own app version**, or all share one.
+- Live progress for every build: a notification and status bar item with
+  percent, ETA and what each running job is doing. Cancel from the
+  notification to stop the build and every worker it started.
+- Build Client… passes the optional version to the CLI instead of editing
+  pubspec.yaml.
 
 ## 0.1.1
 

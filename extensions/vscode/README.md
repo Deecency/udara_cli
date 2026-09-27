@@ -38,15 +38,21 @@ as.
 
 **Build Client…** asks for platform, Android build type, environment and an
 optional **app version**, runs `udara_cli build`, and offers to reveal the
-renamed artifact when it finishes. A version like `1.4.0+12` is written to
-`pubspec.yaml` for that build only and restored afterwards (also on the next
-start if VS Code was closed mid-build). `1.4.0` without a build number keeps
-the current one.
+artifact when it finishes. The version (e.g. `1.4.0+12`) is passed to the CLI;
+`pubspec.yaml` is not edited. `1.4.0` without a build number keeps the
+current one.
 
 **Build Multiple Clients…** picks several clients, Android and/or iOS,
-AAB and/or APK, test env, fail-fast and an optional version, then runs them as
-one `udara_cli build` batch (udara_cli 1.4.0+). It reports how many builds
-succeeded and opens `build/udara/`, where every artifact is collected.
+AAB and/or APK, the version (keep pubspec, one for all, or **one per
+client**), how many to **build in parallel** (Auto or 1-4), test env and
+fail-fast, then runs them as one `udara_cli build` batch. It reports how many
+builds succeeded and opens `build/udara/` or the per-job logs.
+
+**Progress:** every build shows a notification and a status bar item with
+percent, ETA and what each running job is doing. Cancel it from the
+notification to stop the build and every process it started.
+
+Requires udara_cli 1.4.0 or newer; the extension tells you if yours is older.
 
 **Build History view** lists every recorded build from
 `.udara_build_history.json` with pass/fail icons, duration, and a tooltip with

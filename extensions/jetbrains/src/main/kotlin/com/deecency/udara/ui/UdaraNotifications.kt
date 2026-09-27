@@ -32,6 +32,17 @@ object UdaraNotifications {
         }).notify(project)
     }
 
+    fun cliTooOld(project: Project, version: String) {
+        group().createNotification(
+            "udara_cli $version is too old for this plugin",
+            "Builds need udara_cli ${com.deecency.udara.cli.UdaraCli.MIN_CLI_VERSION} or newer. " +
+                "Upgrade with: dart pub global activate udara_cli",
+            NotificationType.WARNING,
+        ).addAction(NotificationAction.createSimple("Open Settings") {
+            ShowSettingsUtil.getInstance().showSettingsDialog(project, "Udara Whitelabel")
+        }).notify(project)
+    }
+
     fun whitelabelFailed(project: Project, root: File, client: String, exitCode: Int, outputTail: String) {
         group().createNotification(
             "Whitelabel for \"$client\" failed (exit code $exitCode)",
@@ -46,13 +57,17 @@ object UdaraNotifications {
         val outputDir = File(root, "build/udara")
         val n = group().createNotification(
             if (failed == 0) "Batch build finished: $succeeded succeeded" else "Batch build finished: $succeeded succeeded, $failed failed",
-            if (failed == 0) "Artifacts are in build/udara/." else "See the Run tool window or the History tab for the errors.",
+            if (failed == 0) "Artifacts are in build/udara/." else "Each job's log is in build/udara/logs/.",
             if (failed == 0) NotificationType.INFORMATION else NotificationType.WARNING,
         )
         if (outputDir.isDirectory) {
             n.addAction(NotificationAction.createSimple("Open Artifacts Folder") {
                 RevealFileAction.openDirectory(outputDir.toPath())
             })
+        }
+        val logsDir = File(root, "build/udara/logs")
+        if (failed > 0 && logsDir.isDirectory) {
+            n.addAction(NotificationAction.createSimple("Open Logs") { RevealFileAction.openDirectory(logsDir.toPath()) })
         }
         if (failed > 0) n.addAction(NotificationAction.createSimple("Run Doctor") { onDoctor() })
         n.notify(project)

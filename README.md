@@ -420,8 +420,10 @@ udara_cli build --client clientA --platform android
 - `--all-clients`: Build every client in `clients/` instead of naming them
 - `--platform` or `-p`: Target platform(s): `android`, `ios` or `android,ios` - defaults to `android`
 - `--type` or `-t`: Android build type(s): `aab`, `apk` or `aab,apk` - defaults to `aab` (iOS always builds an IPA)
+- `--build-version`: Version to build, for all clients (`1.4.0+12`) or per client (`clientA=1.4.0+12,clientB=2.0.0`)
+- `--parallel` or `-j`: How many jobs build at the same time: `auto` (default), or a number
 - `--test`: Build using the test environment (`.env_test`)
-- `--fail-fast`: In a batch, stop at the first failed build instead of continuing
+- `--fail-fast`: Stop at the first failed build instead of continuing
 - `--slack`: Send build notifications to Slack
 - `--slack-channel`: Specify Slack channel (e.g., `#builds`)
 
@@ -458,25 +460,57 @@ udara_cli build --all-clients
 Finished artifacts are collected in `build/udara/<client>/`, named
 `<client>_v<version>.<apk|aab|ipa>`, so later builds never overwrite them.
 
-### Batch Builds
+### Batch & Parallel Builds
 
-When you pass several clients, platforms or types, `build` runs them as a
-batch, one client at a time:
+Pass several clients, platforms or types and `build` runs them as a batch.
+The batch is split into **jobs of one client on one platform** (Android AAB
+and APK share a job and its Gradle caches; iOS is its own job):
 
-1. The client's branding is applied once (bundle id, name, icons, splash,
-   `after_branding` hooks).
-2. Each requested target is built from that branding, e.g. AAB, then APK, then IPA.
-3. The project is restored before the next client starts.
+```bash
+# 2 clients × Android + iOS = 4 jobs, 2 building at the same time
+udara_cli build --client clientA,clientB --platform android,ios --type aab,apk --parallel 2
+```
 
-A failed build doesn't stop the batch: the remaining targets and clients
-still run, and a summary table at the end lists every build with its
-duration and artifact or error. Every build gets its own history entry and
-Slack summary. The command exits non-zero if any build failed, which makes it
-suitable for CI. Use `--fail-fast` to stop at the first failure instead.
+- **Parallel:** `--parallel auto` (the default) picks 1-4 from your RAM and CPU
+  cores; `--parallel N` sets it; `--parallel 1` builds one after another.
+  Parallel jobs each run in their own copy of the project under
+  `~/.udara_cli/workspaces/`, synced before every job (uncommitted changes
+  included), so builds never touch each other's files or your working copy.
+  The copies keep their `build/`, Gradle and CocoaPods caches between runs;
+  `udara_cli clean --workspaces` deletes them.
+- **Progress:** a live view shows overall percent, an ETA, and what each
+  running job is doing. Estimates come from your own build history, so they
+  get more accurate after the first few builds. In CI logs and IDE consoles
+  it prints a line per event instead. `--progress-file <path>` also writes
+  a JSON snapshot, which the IDE extensions use for their progress bars.
+- **Logs:** each job's full output is in `build/udara/logs/<client>-<platform>.log`;
+  the summary shows the lines around any failure.
+- **Failures:** a failed build doesn't stop the batch. The summary lists
+  every build with its version, duration and artifact or error; every build
+  gets its own history entry and Slack message; the exit code is non-zero
+  if any failed. `--fail-fast` stops everything at the first failure.
+- **Cancel:** Ctrl+C (or an IDE stop button) stops every job and every
+  Flutter/Gradle/Xcode process it started, and keeps the artifacts that
+  already finished.
 
-Builds run sequentially: the pipeline rewrites the project for each client,
-so two clients cannot safely build in the same checkout at the same time.
-Both IDE extensions offer the same thing under **Build Multiple Clients…**.
+> **First run on a fresh machine:** parallel jobs share Gradle's one-time
+> distribution download. Run a single build first (or keep `--parallel 1`)
+> until Gradle and CocoaPods have their caches, or jobs may time out waiting
+> for each other's download.
+
+### Build a Specific Version
+
+`--build-version` sets the app version without editing `pubspec.yaml`
+(it is passed to Flutter as `--build-name`/`--build-number`):
+
+```bash
+udara_cli build --client clientA --build-version 2.1.0+45
+udara_cli build --client clientA,clientB --build-version clientA=2.1.0+45,clientB=3.0.0
+udara_cli build --all-clients --build-version 1.4.0          # same for all; keeps the pubspec +build number
+```
+
+Clients without a version keep the pubspec one. The artifact name, history,
+Slack message and hooks (`UDARA_VERSION`) all use the version that was built.
 
 ---
 
@@ -640,6 +674,9 @@ udara_cli whitelabel --client <name> [--test] [--keep]
 
 # Restore project state (after an interrupted build or a whitelabel) and run flutter clean
 udara_cli clean
+
+# Delete the workspaces parallel builds use (frees disk space)
+udara_cli clean --workspaces
 
 # List all available clients with app name and bundle id (add --json for scripts)
 udara_cli list-clients

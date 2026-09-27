@@ -1,4 +1,4 @@
-import 'exceptions.dart';
+import '../exceptions.dart';
 
 /// One artifact to produce for a client: Android APK/AAB or an iOS IPA.
 class BuildTarget {
@@ -29,6 +29,25 @@ class BuildTarget {
   String toString() => label;
 }
 
+/// A unit of work that runs on its own: one client on one platform. Android
+/// types (AAB, APK) share a job so they reuse the same Gradle outputs; iOS is
+/// a separate job so it can run next to Android.
+class BuildJob {
+  const BuildJob(
+      {required this.client, required this.platform, required this.targets});
+
+  final String client;
+  final String platform;
+  final List<BuildTarget> targets;
+
+  String get label => '$client · $platform';
+
+  String get types => targets.map((t) => t.type).join(',');
+
+  /// Stable id used for log file names.
+  String get id => '$client-$platform';
+}
+
 /// Turns `build` arguments into the ordered list of clients and targets.
 class BuildPlan {
   const BuildPlan({required this.clients, required this.targets});
@@ -37,6 +56,17 @@ class BuildPlan {
   final List<BuildTarget> targets;
 
   int get size => clients.length * targets.length;
+
+  /// Clients × platforms, keeping the requested order.
+  List<BuildJob> get jobs => [
+        for (final client in clients)
+          for (final platform in targets.map((t) => t.platform).toSet())
+            BuildJob(
+              client: client,
+              platform: platform,
+              targets: targets.where((t) => t.platform == platform).toList(),
+            ),
+      ];
 
   bool get isBatch => size > 1;
 

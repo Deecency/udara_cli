@@ -2,7 +2,7 @@
   "name": "udara-whitelabel",
   "displayName": "Udara Whitelabel",
   "description": "Browse whitelabel clients and their env files, then run or build any client with udara_cli.",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "publisher": "deecency",
   "license": "MIT",
   "repository": {

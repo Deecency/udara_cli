@@ -42,14 +42,15 @@ class BuildDialog(
 
     val platform: String get() = platformBox.selectedItem as String
 
-    /** The version to build, or null to keep the pubspec version. */
-    val overrideVersion: String? get() = versionField.overrideVersion
+    /** The requested version, or null to keep the pubspec version. */
+    val version: String? get() = versionField.requested
 
     override fun doValidate(): ValidationInfo? = versionField.validate()
 
     fun cliArgs(): List<String> {
         val args = mutableListOf("build", "--client", clientName, "--platform", platform)
         if (platform == "android") args += listOf("--type", typeBox.selectedItem as String)
+        versionField.requested?.let { args += listOf("--build-version", it) }
         if (testBox.isSelected) args += "--test"
         if (slackBox.isSelected) {
             args += "--slack"

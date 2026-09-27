@@ -1,4 +1,5 @@
-export 'build_plan.dart';
+export 'build/build_plan.dart';
+export 'build/build_version.dart';
 export 'exceptions.dart';
 export 'placeholder_png.dart';
 export 'services/config_service.dart';
@@ -10,3 +11,8 @@ export 'dart:io';
 export 'package:args/args.dart';
 export 'package:args/command_runner.dart';
 export 'package:process_run/shell.dart';
+export 'build/progress.dart';
+export 'build/target_result.dart';
+export 'build/progress_view.dart';
+export 'build/workspaces.dart';
+export 'build/batch_runner.dart';

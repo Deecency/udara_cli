@@ -76,6 +76,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
     }
     private val historyTable = JBTable(historyModel)
     private val statusLabel = JBLabel()
+    val buildProgress = BuildProgressBar()
     private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
 
     private var history: List<HistoryEntry> = emptyList()
@@ -111,7 +112,10 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
 
         statusLabel.border = JBUI.Borders.empty(4, 8)
         val content = JPanel(BorderLayout())
-        content.add(statusLabel, BorderLayout.NORTH)
+        val header = JPanel(BorderLayout())
+        header.add(statusLabel, BorderLayout.NORTH)
+        header.add(buildProgress, BorderLayout.SOUTH)
+        content.add(header, BorderLayout.NORTH)
         content.add(tabs, BorderLayout.CENTER)
         setContent(content)
 
@@ -123,6 +127,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
             }
         })
 
+        panels[project] = this
         refresh()
     }
 
@@ -323,7 +328,16 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
         return group
     }
 
+    companion object {
+        private val panels = java.util.concurrent.ConcurrentHashMap<Project, UdaraPanel>()
+
+        /** The Udara tool window panel of [project], if it has been opened. */
+        fun forProject(project: Project): UdaraPanel? = panels[project]
+    }
+
     override fun dispose() {
+        panels.remove(project, this)
+        buildProgress.dispose()
         // The alarm and message bus connection are registered against this disposable.
     }
 

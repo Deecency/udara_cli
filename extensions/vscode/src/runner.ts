@@ -9,6 +9,7 @@ export async function runCliTask(
   label: string,
   args: string[],
   cwd: string,
+  onStarted?: (execution: vscode.TaskExecution) => void,
 ): Promise<number | undefined> {
   const { cliPath } = getConfig();
   const execution = new vscode.ShellExecution(cliPath, args, { cwd });
@@ -27,6 +28,7 @@ export async function runCliTask(
   };
 
   const running = await vscode.tasks.executeTask(task);
+  onStarted?.(running);
   return new Promise((resolve) => {
     const disposable = vscode.tasks.onDidEndTaskProcess((e) => {
       if (e.execution === running) {
