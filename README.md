@@ -206,7 +206,19 @@ UdaraConfig.env['API_BASE_URL'];                               // same map as do
     output: lib/udara_config.g.dart   # must be under lib/
     class_name: UdaraConfig
     exclude: [DEVELOPMENT_TEAM, ASSETS_PATH]   # keys never compiled in
+    include: [BANK_NAME, PRIMARY_COLOR]        # optional: ONLY these are compiled in
   ```
+
+- With `include`, only the listed keys reach the app; everything else
+  (signing passwords, connection strings nobody reads, build numbers) stays
+  out even if it is in `.env`. `migrate-config` writes this list for you from
+  the keys your code reads, and `doctor` warns when code reads a key that
+  isn't on it (it would be null at runtime).
+- The root `.env` is still written during builds for **native tooling**
+  (e.g. a Gradle signing config that reads `RELEASE_STORE_PASSWORD` from
+  it), now with the client's `.secrets` appended, but it is never registered
+  as an app asset, so nothing in it ships. Existing Gradle/Xcode scripts keep
+  working unchanged.
 
 - The `CLIENT_ENV` dart-define is no longer needed; `flutter run` just works.
 
@@ -242,12 +254,20 @@ It:
 
 1. adds `app_config: mode: generated` to `udara.yaml`;
 2. generates `lib/udara_config.g.dart` from the default client;
-3. rewrites `dotenv.env[...]`, `dotenv.get(...)`, `maybeGet`, `getInt`,
+3. writes `app_config.include` with the keys your code reads, so nothing else
+   is compiled in. If some code reads keys by computed name (e.g. a `switch`
+   returning `'CONNECTION_STRING_PROD'`), the full list can't be proven: the
+   preview shows the keys it detected from string literals, and
+   `--include-detected` uses them once you've checked them; without it every
+   key except the excluded ones is compiled in;
+4. rewrites `dotenv.env[...]`, `dotenv.get(...)`, `maybeGet`, `getInt`,
    `getDouble`, `getBool`, `isEveryDefined` and `isInitialized` to
    `UdaraConfig`, removes `await dotenv.load(...)` and the now-unused
    `CLIENT_ENV` constant, and fixes the imports;
-4. removes `.env` entries from `pubspec.yaml` assets;
-5. adds `clients/*/.secrets*` to `.gitignore`.
+5. removes `.env` entries from `pubspec.yaml` assets;
+6. adds `clients/*/.secrets*` to `.gitignore`;
+7. reports native build files (Gradle, Xcode) that read the root `.env`;
+   they keep working, and the values they need can move to `.secrets`.
 
 Your `.env` files are never modified. Anything it cannot rewrite safely is
 listed instead of touched: code that writes to `dotenv.env`, a

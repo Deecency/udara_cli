@@ -587,6 +587,13 @@ restored afterwards, even when a build fails. Every build is recorded in
           'Generating ${appConfig.settings.output}',
           () => appConfig.write(
               client: client, envFile: envFile, isTest: isTest));
+      // Native tooling (Gradle signing, Xcode scripts) may still read the
+      // root .env; it is not an app asset in this mode, so it can include
+      // the build-time secrets.
+      await runStep(
+          'Staging root .env for native builds (not shipped)',
+          () => config.stageNativeEnv(
+              envFile, resolveSecretsFile(client, isTest: isTest)));
     } else {
       await runStep('Staging client environment as root .env',
           () => config.copyToRootEnv(envFile));

@@ -49,6 +49,32 @@ class DotenvMigration {
       r'''(?<![\w.$])dotenv\.env\s*(\[[^\]]*\]\s*(=(?!=)|\?\?=|\+=)|\.(addAll|remove|clear|putIfAbsent|update)\b)''');
   static final _dotEnvClass = RegExp(r'\bDotEnv\s*\(');
 
+  static final _literalRead = RegExp(
+      r'''(?<![\w.$])dotenv\.(?:env\s*\[|(?:get|maybeGet|getInt|getDouble|getBool)\s*\()\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1''');
+  static final _dynamicRead = RegExp(
+      r'''(?<![\w.$])dotenv\.(?:env\s*\[|(?:get|maybeGet|getInt|getDouble|getBool)\s*\()\s*(?!['"])''');
+  static final _everyDefined =
+      RegExp(r'(?<![\w.$])dotenv\.isEveryDefined\s*\(');
+  static final _wholeEnv = RegExp(r'(?<![\w.$])dotenv\.env(?!\s*\[)\b');
+
+  /// The .env keys [source] reads by literal name, whether it also reads
+  /// keys it computes at runtime (then no complete allow-list can be
+  /// proven), and every KEY_LIKE string literal in it, which is how computed
+  /// keys are usually spelled (e.g. a switch returning 'CONNECTION_STRING_PROD').
+  static ({Set<String> keys, bool dynamic, Set<String> literals}) scanKeys(
+      String source) {
+    final literals = RegExp(r'''(['"])([A-Z][A-Z0-9_]*)\1''')
+        .allMatches(source)
+        .map((m) => m.group(2)!)
+        .toSet();
+    final keys =
+        _literalRead.allMatches(source).map((m) => m.group(2)!).toSet();
+    final dynamic = _dynamicRead.hasMatch(source) ||
+        _everyDefined.hasMatch(source) ||
+        _wholeEnv.hasMatch(source);
+    return (keys: keys, dynamic: dynamic, literals: literals);
+  }
+
   static MigrationResult migrateSource(
     String source, {
     required String className,

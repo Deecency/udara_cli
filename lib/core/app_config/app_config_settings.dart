@@ -26,6 +26,7 @@ enum AppConfigMode {
 ///   output: lib/udara_config.g.dart
 ///   class_name: UdaraConfig
 ///   exclude: [DEVELOPMENT_TEAM, ASSETS_PATH]
+///   include: [BANK_NAME, PRIMARY_COLOR]  # optional allow-list
 /// ```
 class AppConfigSettings {
   const AppConfigSettings({
@@ -33,6 +34,7 @@ class AppConfigSettings {
     this.output = defaultOutput,
     this.className = defaultClassName,
     this.exclude = defaultExclude,
+    this.include,
     this.declared = false,
   });
 
@@ -51,6 +53,15 @@ class AppConfigSettings {
 
   /// `.env` keys that are not compiled into the app.
   final List<String> exclude;
+
+  /// When set, only these `.env` keys are compiled into the app (minus
+  /// [exclude]). `migrate-config` fills it with the keys the code reads, so
+  /// build-only values (signing passwords, connection strings) stay out.
+  final List<String>? include;
+
+  /// Whether [key] is compiled into the app.
+  bool shipsKey(String key) =>
+      !exclude.contains(key) && (include == null || include!.contains(key));
 
   /// Whether udara.yaml has an `app_config:` section at all.
   final bool declared;
@@ -80,7 +91,7 @@ class AppConfigSettings {
           fix: 'For example:\n  app_config:\n    mode: generated');
     }
 
-    const known = {'mode', 'output', 'class_name', 'exclude'};
+    const known = {'mode', 'output', 'class_name', 'exclude', 'include'};
     final unknown =
         section.keys.map((k) => '$k').where((k) => !known.contains(k));
     if (unknown.isNotEmpty) {
@@ -122,11 +133,21 @@ class AppConfigSettings {
           fix: 'For example: exclude: [DEVELOPMENT_TEAM, ASSETS_PATH]');
     }
 
+    final rawInclude = section['include'];
+    List<String>? include;
+    if (rawInclude is YamlList) {
+      include = rawInclude.map((e) => '$e').toList();
+    } else if (rawInclude != null) {
+      throw BuildException('app_config.include must be a list of .env keys.',
+          fix: 'For example: include: [BANK_NAME, PRIMARY_COLOR]');
+    }
+
     return AppConfigSettings(
       mode: mode,
       output: normalized,
       className: className,
       exclude: exclude,
+      include: include,
       declared: true,
     );
   }

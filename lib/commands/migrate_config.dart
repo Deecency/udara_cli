@@ -14,6 +14,11 @@ class MigrateConfigCommand extends UdaraCommand {
           help: 'Make the changes (without it, only shows what would change).')
       ..addFlag('allow-dirty',
           negatable: false, help: 'Apply even with uncommitted git changes.')
+      ..addFlag('include-detected',
+          negatable: false,
+          help:
+              'When code reads keys by computed name, still compile in only the keys detected '
+              'from its string literals (check the list in the preview first).')
       ..addFlag('force',
           negatable: false,
           help: 'Apply even when some code needs manual changes first.')
@@ -120,6 +125,46 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
             <String>[];
     final envAssets = assets.where(_isEnvAsset).toList();
 
+    // The keys the app's code reads become the include allow-list, so only
+    // they are compiled in. A computed key (dotenv.env[variable]) makes a
+    // complete list impossible; then every non-excluded key is included.
+    final usedKeys = <String>{};
+    final dynamicReads = <String>[];
+    final dynamicLiterals = <String>{};
+    for (final f in _dartFiles(output)) {
+      final rel = p.relative(f.path, from: projectDir).replaceAll('\\', '/');
+      if (!rel.startsWith('lib/') || _isGenerated(rel)) continue;
+      final scan = DotenvMigration.scanKeys(f.readAsStringSync());
+      usedKeys.addAll(scan.keys);
+      if (scan.dynamic) {
+        dynamicReads.add(rel);
+        dynamicLiterals.addAll(scan.literals);
+      }
+    }
+    final allEnvKeys = <String>{};
+    for (final client in clients) {
+      for (final name in const ['.env', '.env_test']) {
+        final f = File(p.join(clientsDir.path, client, name));
+        if (f.existsSync())
+          allEnvKeys
+              .addAll(ConfigService.parseEnvContent(f.readAsStringSync()).keys);
+      }
+    }
+    // Computed keys are usually spelled as literals nearby; those that name
+    // real .env keys are the best guess at what the code reads.
+    final detected =
+        ({...usedKeys, ...dynamicLiterals.where(allEnvKeys.contains)}.toList()
+          ..sort());
+    final includeDetected = argResults!['include-detected'] as bool;
+    final include = dynamicReads.isEmpty
+        ? (usedKeys.toList()..sort())
+        : (includeDetected ? detected : null);
+    bool ships(String key) =>
+        !AppConfigSettings.defaultExclude.contains(key) &&
+        (include == null || include.contains(key));
+    final leftOut = (allEnvKeys.where((k) => !ships(k)).toList()..sort());
+    final nativeReaders = _nativeEnvReaders();
+
     final secrets = <String>[];
     for (final client in clients) {
       for (final name in const ['.env', '.env_test']) {
@@ -127,10 +172,10 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
         if (!f.existsSync()) continue;
         final values = ConfigService.parseEnvContent(f.readAsStringSync());
         for (final e in values.entries) {
-          if (AppConfigSettings.defaultExclude.contains(e.key)) continue;
           final why = SecretDetector.reason(e.key, e.value);
-          if (why != null)
-            secrets.add('clients/$client/$name: ${e.key} ($why)');
+          if (why == null) continue;
+          secrets.add('clients/$client/$name: ${e.key} ($why) → '
+              '${!ships(e.key) ? 'not read by the app, so it stays out after migrating' : include == null ? 'no allow-list yet, so it would still be compiled in' : 'the app reads it, so it would still be compiled in'}');
         }
       }
     }
@@ -142,6 +187,11 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
       files: fileResults,
       envAssets: envAssets,
       secrets: secrets,
+      include: include,
+      detected: detected,
+      dynamicReads: dynamicReads,
+      leftOut: leftOut,
+      nativeReaders: nativeReaders,
     );
 
     final blocked = fileResults.entries.where((e) => e.value.blocked).toList();
@@ -164,7 +214,7 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
     }
 
     Logger.phase('Migrating');
-    _writeSettings(output, className);
+    _writeSettings(output, className, include);
     Logger.success('udara.yaml: app_config mode set to generated');
 
     final config = ConfigService(projectDir);
@@ -228,12 +278,39 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
     required Map<String, MigrationResult> files,
     required List<String> envAssets,
     required List<String> secrets,
+    required List<String>? include,
+    required List<String> detected,
+    required List<String> dynamicReads,
+    required List<String> leftOut,
+    required Map<String, List<String>> nativeReaders,
   }) {
     Logger.phase('Migrate App Config: .env assets → $className');
     Logger.info(
         '1. udara.yaml: add app_config (mode: generated, output: $output)');
-    Logger.info('2. Generate $output from clients/$seedClient/.env '
-        '(excluding ${AppConfigSettings.defaultExclude.join(', ')}; builds regenerate it per client)');
+    Logger.info(
+        '2. Generate $output from clients/$seedClient/.env; builds regenerate it per client');
+    if (include != null && dynamicReads.isEmpty) {
+      Logger.info(
+          '   Only the ${include.length} keys your code reads are compiled in '
+          '(saved as app_config.include): ${include.join(', ')}');
+    } else if (include != null) {
+      Logger.info(
+          '   Only these ${include.length} keys are compiled in (saved as app_config.include). '
+          'Keys read by computed name in ${dynamicReads.join(', ')} were matched from its string literals: '
+          '${include.join(', ')}');
+    } else {
+      Logger.info(
+          '   Every key except ${AppConfigSettings.defaultExclude.join(', ')} is compiled in: '
+          "${dynamicReads.join(', ')} reads keys by computed name, so the full list can't be proven.");
+      Logger.info(
+          '   From its string literals, the app appears to read these ${detected.length} keys: '
+          '${detected.join(', ')}');
+      Logger.info(
+          '   If that is all of them, re-run with --include-detected to compile in only those.');
+    }
+    if (leftOut.isNotEmpty) {
+      Logger.info('   Stay out of the app: ${leftOut.join(', ')}');
+    }
 
     final changed = files.entries.where((e) => e.value.changed).toList();
     Logger.info(
@@ -245,6 +322,12 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
         ? '4. pubspec.yaml: no .env assets to remove'
         : '4. pubspec.yaml: remove ${envAssets.join(', ')} from flutter.assets');
     Logger.info('5. .gitignore: add clients/*/.secrets*');
+    for (final e in nativeReaders.entries) {
+      Logger.info(
+          '6. ${e.key} reads the root .env${e.value.isEmpty ? '' : ' (${e.value.join(', ')})'}: '
+          'builds keep staging it for native tools (never shipped), now with the client\'s .secrets added, '
+          'so those values can move to .secrets.');
+    }
     Logger.info('   Your clients/*/.env files are not modified.');
 
     final notes = files.entries.where((e) => e.value.notes.isNotEmpty).toList();
@@ -261,9 +344,10 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
     if (secrets.isNotEmpty) {
       Logger.phase('Possible Secrets');
       Logger.info(
-          'These would be compiled into the app. If the app does not need them, move them');
+          'These are in .env, which every build ships inside the app today. Move them to');
       Logger.info(
-          'to clients/<client>/.secrets (never shipped; hooks get UDARA_SECRETS_FILE):');
+          'clients/<client>/.secrets: never shipped, still available to hooks (UDARA_SECRETS_FILE)');
+      Logger.info('and to native builds through the staged root .env.');
       for (final s in secrets) {
         Logger.warning(s);
       }
@@ -300,7 +384,7 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
         name.startsWith('.env.');
   }
 
-  void _writeSettings(String output, String className) {
+  void _writeSettings(String output, String className, List<String>? include) {
     final file = File(p.join(projectDir, AppConfigSettings.configFileName));
     final settings = <String, Object>{
       'mode': 'generated',
@@ -308,6 +392,7 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
       if (className != AppConfigSettings.defaultClassName)
         'class_name': className,
       'exclude': AppConfigSettings.defaultExclude,
+      if (include != null) 'include': include,
     };
     if (!file.existsSync() || file.readAsStringSync().trim().isEmpty) {
       file.writeAsStringSync('''
@@ -319,12 +404,41 @@ app_config:
   output: $output
 ${className != AppConfigSettings.defaultClassName ? '  class_name: $className\n' : ''}  # .env keys only the CLI needs; never compiled into the app.
   exclude: [${AppConfigSettings.defaultExclude.join(', ')}]
-''');
+${include == null ? '' : '  # Keys your code reads; only these are compiled into the app. Add new ones here.\n  include: [${include.join(', ')}]\n'}''');
       return;
     }
     final editor = YamlEditor(file.readAsStringSync());
     editor.update(['app_config'], settings);
     file.writeAsStringSync(editor.toString());
+  }
+
+  /// Native build files that read the root `.env` (e.g. Gradle signing),
+  /// with the keys they read when that can be seen.
+  Map<String, List<String>> _nativeEnvReaders() {
+    final candidates = [
+      'android/app/build.gradle',
+      'android/app/build.gradle.kts',
+      'android/build.gradle',
+      'android/build.gradle.kts',
+      'android/settings.gradle',
+      'android/settings.gradle.kts',
+      'ios/Runner.xcodeproj/project.pbxproj',
+    ];
+    final readers = <String, List<String>>{};
+    for (final rel in candidates) {
+      final f = File(p.join(projectDir, rel));
+      if (!f.existsSync()) continue;
+      final src = f.readAsStringSync();
+      if (!RegExp(r'''['"/]\.env['"]''').hasMatch(src)) continue;
+      final keys = RegExp(r'''getProperty\(\s*['"]([A-Za-z0-9_]+)['"]''')
+          .allMatches(src)
+          .map((m) => m.group(1)!)
+          .toSet()
+          .toList()
+        ..sort();
+      readers[rel] = keys;
+    }
+    return readers;
   }
 
   void _requireCleanGit() {

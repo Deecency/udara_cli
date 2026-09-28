@@ -546,6 +546,31 @@ class DoctorCommand extends UdaraCommand {
         }
       }
       if (loads == 0) _pass('No dotenv.load() calls left in lib/.');
+
+      // With an allow-list, a key read by name but not listed is null at
+      // runtime (typed fields would fail to compile, map reads would not).
+      final include = settings.include;
+      if (include != null && libDir.existsSync()) {
+        final read = RegExp('(?<![\\w.\$])${RegExp.escape(settings.className)}'
+            r'''\.(?:env\s*\[|(?:get|maybeGet|getInt|getDouble|getBool)\s*\()\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1''');
+        final missing = <String>{};
+        for (final f in libDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))) {
+          for (final m in read.allMatches(f.readAsStringSync())) {
+            if (!include.contains(m.group(2))) missing.add(m.group(2)!);
+          }
+        }
+        if (missing.isEmpty) {
+          _pass('Every key the code reads is in app_config.include.');
+        } else {
+          _warn(
+              'The code reads ${missing.join(', ')}, which app_config.include leaves out, so it is null at runtime.',
+              fix:
+                  'Add ${missing.length == 1 ? 'it' : 'them'} to app_config.include in udara.yaml.');
+        }
+      }
       // Tests may still use flutter_dotenv (e.g. loadFromString).
       for (final dir in const ['test', 'integration_test', 'test_driver']) {
         final d = Directory(p.join(projectDir, dir));

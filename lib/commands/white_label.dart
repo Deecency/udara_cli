@@ -156,6 +156,11 @@ Run "udara_cli clean" to restore the project files again.
                 envFile: envFile,
                 isTest: isTest,
                 trackForCleanup: !keep));
+        await runStep(
+            'Staging root .env for native builds (not shipped)',
+            () => config.stageNativeEnv(
+                envFile, resolveSecretsFile(client, isTest: isTest),
+                trackForCleanup: !keep));
       } else {
         await runStep('Staging client environment as root .env',
             () => config.copyToRootEnv(envFile, trackForCleanup: !keep));

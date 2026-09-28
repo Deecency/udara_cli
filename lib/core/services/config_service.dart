@@ -129,6 +129,39 @@ class ConfigService {
     }
   }
 
+  /// Generated app config: writes the root `.env` for native build tooling
+  /// (e.g. Gradle reading signing passwords) as the client's `.env` plus its
+  /// `.secrets`. It is never registered as an app asset, so nothing in it
+  /// ships; it is backed up / removed on cleanup like [copyToRootEnv].
+  Future<File> stageNativeEnv(File envFile, File? secretsFile,
+      {bool trackForCleanup = true}) async {
+    final target = File(p.join(projectDir, '.env'));
+    try {
+      if (trackForCleanup) {
+        if (target.existsSync()) {
+          if (!hasBackup(target)) await createBackup(target);
+        } else {
+          await markCreated(target);
+        }
+      }
+      final buffer = StringBuffer(await envFile.readAsString());
+      if (secretsFile != null) {
+        buffer
+          ..writeln()
+          ..writeln(
+              '# ---- ${p.basename(secretsFile.path)} (build-time only, never shipped) ----')
+          ..write(await secretsFile.readAsString());
+      }
+      await target.writeAsString(buffer.toString());
+      return target;
+    } catch (e, s) {
+      if (e is BuildException) rethrow;
+      throw BuildException('Failed to stage the root .env for native builds.',
+          fix: 'Check write permissions for "${target.path}".',
+          originalStackTrace: s);
+    }
+  }
+
   // --------------------------------------------------------------------------
   // YAML MANIPULATION (pubspec.yaml, etc.)
   // --------------------------------------------------------------------------

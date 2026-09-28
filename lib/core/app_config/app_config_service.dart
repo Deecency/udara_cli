@@ -37,7 +37,7 @@ class AppConfigService {
   /// Keys compiled into the app for [values]: everything except excluded ones.
   Map<String, String> appValues(Map<String, String> values) => {
         for (final e in values.entries)
-          if (!settings.exclude.contains(e.key)) e.key: e.value,
+          if (settings.shipsKey(e.key)) e.key: e.value,
       };
 
   /// Generates the source for [client] from [envFile].
