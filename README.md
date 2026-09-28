@@ -2,248 +2,46 @@
 
 [![pub package](https://iili.io/Cwteh5x.png)](https://pub.dev/packages/udara_cli)
 
-A powerful CLI tool for managing whitelabel Flutter projects with multi-client support. Build and maintain multiple branded versions of your Flutter app from a single codebase.
+Build and maintain many branded versions of one Flutter app. Each client gets
+its own app name, bundle id, icons, splash, fonts and configuration, and one
+command builds any client, or all of them in parallel.
 
----
-
-## Features
-
-- 🏢 **Multi-client support** - Manage unlimited white-label variants
-- 🎨 **Asset management** - Client-specific icons, logos, and fonts
-- ⚙️ **Environment-based configuration** - Separate configs for dev, staging, and production
-- 🚀 **Automated builds** - One command to build for any client, or a whole batch of clients and platforms
-- 📱 **Slack notifications** - Get build status updates in Slack
-- 🔧 **Easy setup** - Guided project initialization
-- 🩺 **Pre-build validation** - Catch missing config, keys, or assets before a build fails
-- 📜 **Build history** - Every build is recorded locally so you can review recent runs
-- 🔍 **Client diffing** - Compare env configuration between two clients at a glance
-- 🧪 **Persistent whitelabeling** - Apply a client's branding and run it locally with `flutter run`
-- 🪝 **Hooks** - Run your own per-client scripts (Firebase, OneSignal, uploads) at fixed points of every build
-- 🔐 **Compiled config & secrets** - Client values compiled into a Dart class instead of a readable `.env`; build-time secrets never ship
+- 🏢 **Multi-client** — one folder per client under `clients/`
+- 🎨 **Branding** — bundle id, app name, launcher icons, splash, fonts and iOS team per client
+- 🔐 **Compiled config & secrets** — client values compiled into a Dart class instead of a readable `.env`; build-time secrets never ship
+- 🚀 **Batch & parallel builds** — several clients and platforms at once, with per-client versions, live progress and ETA
+- 🧩 **IDE extensions** — run and build any client from VS Code or Android Studio
+- 🪝 **Hooks** — your own per-client scripts (Firebase, OneSignal, uploads) at fixed points of every build
+- 🩺 **Doctor, history and diff** — catch problems before a build, review past builds, compare clients
+- 📱 **Slack notifications** (optional)
 
 ---
 
 ## Installation
 
-### Global Installation
+Requires the Flutter SDK. `udara_cli setup` installs everything else the project needs.
 
 ```bash
 dart pub global activate udara_cli
-```
-
-### Add to PATH
-
-Make sure the pub cache bin directory is in your PATH:
-
-**macOS/Linux:**
-```bash
-export PATH="$PATH":"$HOME/.pub-cache/bin"
-```
-
-Add this to your `~/.bashrc`, `~/.zshrc`, or equivalent shell config file to make it permanent.
-
-**Windows:**
-Add `%LOCALAPPDATA%\Pub\Cache\bin` to your PATH environment variable.
-
-### Verify Installation
-
-```bash
 udara_cli --version
 ```
 
----
+If `udara_cli` isn't found, add the pub cache to your PATH: `export PATH="$PATH:$HOME/.pub-cache/bin"` in `~/.zshrc` / `~/.bashrc` (macOS/Linux), or `%LOCALAPPDATA%\Pub\Cache\bin` on Windows.
 
-## Getting Started
+## IDE Extensions 🧩
 
-After installing the CLI, you need to initialize your project. The CLI provides a guided setup process:
+Both extensions list every client with its env files, and run (`whitelabel` + `flutter run`, with the IDE's own debugger and hot reload) or build any client with a click, including multi-client batch builds with per-client versions and progress bars.
 
-### 1. Initial Project Setup
+- **VS Code**: [Udara Whitelabel on the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=deecency.udara-whitelabel) · [source](extensions/vscode/)
+- **Android Studio / IntelliJ IDEA**: [Udara Whitelabel on the JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34541-udara-whitelabel) · [source](extensions/jetbrains/)
 
-Run the setup command to configure your project dependencies and create necessary configuration files:
+They use `udara_cli list-clients --json` and `udara_cli history --json`, which are handy for your own scripts too.
 
-```bash
-udara_cli setup
-```
+## Migrating an Existing Project
 
-This will:
-- Install required dependencies (`rename`, `flutter_launcher_icons`, `splash_master`; plus `flutter_dotenv` for projects in dotenv mode)
-- For a new project (no `clients/` yet), set `app_config: mode: generated` in `udara.yaml` so client config is compiled in rather than shipped as `.env`
-- Create `flutter_launcher_icons.yaml` configuration file
-- Add `splash_master` configuration to your `pubspec.yaml`
-- Add the CLI's local state files and secrets (`.udara/`, `.udara_build_history.json`, `/.env`, `clients/*/.secrets*`) to `.gitignore`
-
-### 2. Initialize Client Directories
-
-Create your client directories with pre-configured templates:
-
-```bash
-# Create one or more clients (comma-separated)
-udara_cli setup --clients default,clientA,clientB
-```
-
-This will create the complete directory structure for each client, including:
-- Client folder in `clients/[name]/`
-- Environment files (`.env` and `.env_test`)
-- Valid placeholder `logo_small.png` / `logo_large.png` images (replace them with real artwork; `doctor` warns while they are still placeholders)
-- Fonts directory
-- Client-specific README
-
-**Note**: A `default` client is always created as the runtime fallback, and `clients/default/.env` is registered under `flutter.assets` so plain `flutter run` works.
-
-### 3. Optional: Configure Slack Notifications
-
-If you want build notifications sent to Slack:
-
-```bash
-udara_cli setup --notify
-```
-
-You'll need:
-- A Slack Bot Token (starts with `xoxb-`)
-- Bot token scopes: `chat:write`, `files:write`, `channels:read`
-
-### 4. List Available Clients
-
-To see all configured clients:
-
-```bash
-udara_cli list-clients
-```
-
-### Other Setup Options
-
-```bash
-# Reset all CLI configurations
-udara_cli setup --reset
-
-# Get detailed help on setup command
-udara_cli setup --help
-```
-
----
-
-## Project Structure
-
-Your Flutter project must follow this structure for the CLI to work properly:
-
-```
-your_flutter_project/
-├── clients/
-│   ├── default/                 # required fallback client
-│   │   ├── .env
-│   │   ├── .env_test
-│   │   ├── logo_small.png       # app icon source
-│   │   ├── logo_large.png       # splash screen source
-│   │   └── fonts/               # optional custom fonts + fonts.yaml
-│   ├── clientA/
-│   │   └── ... same layout ...
-│   └── clientB/
-│       └── ... same layout ...
-├── assets/
-│   └── branding/                # GENERATED: the active client's files are
-│       └── <client>/            # copied here at build time and removed again
-├── .udaraignore                 # patterns never copied into the app bundle
-├── flutter_launcher_icons.yaml
-└── pubspec.yaml
-```
-
-Everything inside a client folder (except env files, secrets, `README.md` and anything matching `.udaraignore`) is copied to `assets/branding/<client>/` when that client is built, and the folder is registered under `flutter.assets`. Sub-folders are copied too, but note that Flutter only bundles the top level of a registered asset directory.
-
----
-
-## App Configuration & Secrets 🔐
-
-Each client's `clients/<client>/.env` holds the values your app reads at
-runtime (colours, feature flags, API base URLs, …) next to the ones udara_cli
-needs for the build (bundle id, icon paths, team id). There are two ways
-those values reach the app:
-
-| | **Generated** (recommended, default for new projects) | **dotenv** (default for existing projects) |
-| --- | --- | --- |
-| What ships in the app | A compiled Dart class with the client's app values | The client's whole `.env` file as an asset (plus the default client's) |
-| Read by unzipping the APK/IPA | No | Yes, in seconds |
-| Build-only keys (`DEVELOPMENT_TEAM`, `ASSETS_PATH`) | Left out | Shipped |
-| In your code | `UdaraConfig.primaryColor`, `UdaraConfig.get('KEY')` | `dotenv.env['KEY']` |
-| Needs `flutter_dotenv` | No | Yes |
-
-> **Nothing that ships inside an app is truly secret.** Compiling values in
-> stops casual extraction, but a determined attacker can still find string
-> constants in the binary. So keep anything that must stay private
-> (payment secret keys, admin tokens, signing passwords) out of `.env`
-> entirely: put it in `.secrets` (below) if only the build needs it, or behind
-> your own backend if the app needs it. Firebase config and similar
-> "API keys" are public by design; protect those services with security
-> rules and [Firebase App Check](https://firebase.google.com/docs/app-check).
-
-### Generated config
-
-With `app_config: mode: generated` in `udara.yaml`, every `build` and
-`whitelabel` writes `lib/udara_config.g.dart` for the client being built and
-restores it afterwards. Commit the file: the checked-in version (the
-`default` client's) is what plain `flutter run` uses.
-
-```dart
-import 'package:your_app/udara_config.g.dart';
-
-Color(int.parse(UdaraConfig.primaryColor ?? '0xFF4285F4'));   // typed constant
-UdaraConfig.getBool('SHOW_SIGN_UP', fallback: false);          // same API as dotenv
-UdaraConfig.env['API_BASE_URL'];                               // same map as dotenv.env
-```
-
-- Every key becomes a constant (`PRIMARY_COLOR` → `primaryColor`). The class
-  has the same fields for every client and for `.env_test`: a key missing
-  from any of them is a nullable `String?`, so code that compiles for one
-  client compiles for all.
-- `env`, `get`, `maybeGet`, `getInt`, `getDouble`, `getBool`,
-  `isEveryDefined` and `isInitialized` behave like flutter_dotenv's.
-- `UdaraConfig.client` and `UdaraConfig.isTestEnvironment` tell you which
-  build you are in.
-- `udara.yaml` options:
-
-  ```yaml
-  app_config:
-    mode: generated                   # or dotenv
-    output: lib/udara_config.g.dart   # must be under lib/
-    class_name: UdaraConfig
-    exclude: [DEVELOPMENT_TEAM, ASSETS_PATH]   # keys never compiled in
-    include: [BANK_NAME, PRIMARY_COLOR]        # optional: ONLY these are compiled in
-  ```
-
-- With `include`, only the listed keys reach the app; everything else
-  (signing passwords, connection strings nobody reads, build numbers) stays
-  out even if it is in `.env`. `migrate-config` writes this list for you from
-  the keys your code reads, and `doctor` warns when code reads a key that
-  isn't on it (it would be null at runtime).
-- **No root `.env` by default.** It is only written when a native build file
-  reads it (e.g. a Gradle signing config reading `RELEASE_STORE_PASSWORD`),
-  and only during `udara_cli build`: the client's `.env` plus its `.secrets`,
-  with a header marking it as udara_cli's, never registered as an app asset,
-  and removed when the build ends. `whitelabel` / the editors' Run Client
-  never write it, so make release builds with `udara_cli build`.
-  `udara_cli clean` removes a root `.env` left over from dotenv mode.
-
-- The `CLIENT_ENV` dart-define is no longer needed; `flutter run` just works.
-
-### Build-time secrets: `.secrets`
-
-`clients/<client>/.secrets` (and `.secrets_test` for `--test` builds) use the
-same `KEY=VALUE` format but are **never** compiled into the app, bundled,
-copied into branding assets, or shown by `list-clients`. Hooks receive the
-path as `UDARA_SECRETS_FILE`, so upload, signing or Firebase scripts can read
-them:
-
-```bash
-source "$UDARA_SECRETS_FILE"   # in a hook script
-```
-
-`udara_cli setup` adds `clients/*/.secrets*` to `.gitignore`, and `doctor`
-fails if a `.secrets` file is not ignored. `doctor` also warns about any
-secret-looking value (private keys, `sk_live_…`, `*_SECRET`, `*_PASSWORD`,
-`*_TOKEN`, …) in the config that ships with the app.
-
-### Migrating an existing project
-
-Nothing changes for existing projects until you run the migration:
+Projects set up before 1.5.0 bundle each client's `.env` into the app with
+flutter_dotenv, where anyone can read it by unzipping the APK/IPA. They keep
+working unchanged until you migrate to [generated config](#app-configuration--secrets-):
 
 ```bash
 git commit -am "before udara config migration"   # it refuses to run on a dirty tree
@@ -252,162 +50,136 @@ udara_cli migrate-config --apply    # migrate
 flutter analyze && udara_cli doctor
 ```
 
-It:
+The migration:
 
-1. adds `app_config: mode: generated` to `udara.yaml`;
-2. generates `lib/udara_config.g.dart` from the default client;
-3. writes `app_config.include` with the keys your code reads, so nothing else
-   is compiled in. If some code reads keys by computed name (e.g. a `switch`
-   returning `'CONNECTION_STRING_PROD'`), the full list can't be proven: the
-   preview shows the keys it detected from string literals, and
-   `--include-detected` uses them once you've checked them; without it every
-   key except the excluded ones is compiled in;
-4. rewrites `dotenv.env[...]`, `dotenv.get(...)`, `maybeGet`, `getInt`,
-   `getDouble`, `getBool`, `isEveryDefined` and `isInitialized` to
-   `UdaraConfig`, removes `await dotenv.load(...)` and the now-unused
-   `CLIENT_ENV` constant, and fixes the imports;
-5. removes `.env` entries from `pubspec.yaml` assets;
-6. adds `clients/*/.secrets*` to `.gitignore`;
-7. reports native build files (Gradle, Xcode) that read the root `.env`;
-   they keep working, and the values they need can move to `.secrets`.
+1. sets `app_config: mode: generated` in `udara.yaml` and generates `lib/udara_config.g.dart` from the default client;
+2. writes `app_config.include` with the keys your code reads, so nothing else is compiled in. When code reads keys by computed name (e.g. a `switch` returning `'CONNECTION_STRING_PROD'`), the preview lists the keys it detected from string literals; `--include-detected` uses them once you've checked them;
+3. rewrites `dotenv.env[...]`, `dotenv.get(...)`, `maybeGet`, `getInt`, `getDouble`, `getBool`, `isEveryDefined` and `isInitialized` to `UdaraConfig`, removes `await dotenv.load(...)` and the unused `CLIENT_ENV` constant, and fixes imports;
+4. removes `.env` entries from `pubspec.yaml` assets and git-ignores `clients/*/.secrets*`;
+5. reports native build files (Gradle, Xcode) that read the root `.env`. They keep working; their secrets can move to `.secrets`.
 
-Your `.env` files are never modified. Anything it cannot rewrite safely is
-listed instead of touched: code that writes to `dotenv.env`, a
-`dotenv.load()` inside a larger expression, prefixed imports, custom
-`DotEnv()` instances, and tests that inject values with `loadFromString`.
-Items that would break the app (like a remaining `dotenv.load()`, which
-would throw at startup once `.env` stops shipping) block `--apply` until you
-fix them (or pass `--force`). It also lists secret-looking keys so you can
-move them to `.secrets` first.
+Your `.env` files are never modified. Anything it can't rewrite safely (writes to `dotenv.env`, custom `DotEnv()` instances, prefixed imports, `loadFromString` in tests, ...) is listed instead of touched, and items that would break the app block `--apply` until fixed (or `--force`). It also lists secret-looking keys so you can move them to `.secrets` first.
 
-**To roll back:** `git checkout . && git clean -fd lib`, or set
-`app_config: mode: dotenv` (your `.env` files are unchanged, so dotenv mode
-works again as soon as the code reads `dotenv` again).
+**To roll back:** `git checkout . && git clean -fd lib`.
 
-### dotenv mode (existing projects)
+---
 
-Projects without an `app_config` section keep working exactly as before: the
-client's `.env` is staged as the root `.env`, registered under
-`flutter.assets` (together with `clients/default/.env` as a fallback), and
-`--dart-define=CLIENT_ENV=.env` is passed to Flutter. The app loads it with:
+## Getting Started
+
+```bash
+udara_cli setup                                    # dependencies, configs, .gitignore
+udara_cli setup --clients default,clientA,clientB  # client folders from templates
+udara_cli doctor                                   # check everything
+```
+
+`setup` installs `rename`, `flutter_launcher_icons` and `splash_master`, creates `flutter_launcher_icons.yaml` and the `splash_master` config, starts new projects in generated config mode, and git-ignores the CLI's local state (`.udara/`, `.udara_build_history.json`, `/.env`, `clients/*/.secrets*`).
+
+`setup --clients` creates `clients/<name>/` with `.env`, `.env_test`, placeholder `logo_small.png` / `logo_large.png` (replace them; `doctor` warns while they are placeholders), a `fonts/` folder and a README. A `default` client is always created: it is what plain `flutter run` uses.
+
+For Slack notifications: `udara_cli setup --notify` (a bot token `xoxb-…` with `chat:write`, `files:write`, `channels:read`).
+
+## Project Structure
+
+```
+your_flutter_project/
+├── clients/
+│   ├── default/                 # required fallback client
+│   │   ├── .env                 # client config (.env_test for --test)
+│   │   ├── .secrets             # optional build-time secrets, git-ignored
+│   │   ├── logo_small.png       # app icon source
+│   │   ├── logo_large.png       # splash screen source
+│   │   └── fonts/               # optional custom fonts + fonts.yaml
+│   └── clientA/ ...
+├── assets/branding/<client>/    # GENERATED during a run, removed afterwards
+├── lib/udara_config.g.dart      # GENERATED config (commit the default client's)
+├── udara.yaml                   # app_config and hooks
+├── .udaraignore                 # patterns never copied into the app
+└── flutter_launcher_icons.yaml
+```
+
+Everything in a client folder except env/secrets files, `README.md` and `.udaraignore` matches is copied to `assets/branding/<client>/` for that client's run, and registered under `flutter.assets`. Flutter only bundles the top level of a registered asset folder.
+
+### Client `.env`
+
+```env
+APP_NAME_PROD="Client A"                                  # required: app name
+BUNDLE_ID="com.company.clienta"                           # required: bundle / application id
+ASSETS_PATH="clients/clientA/"                            # required: copied to assets/branding/clientA/
+APP_ICON_PATH="assets/branding/clientA/logo_small.png"    # required: launcher icon
+APP_LOGO_PATH="assets/branding/clientA/logo_large.png"    # optional: splash image (defaults to the icon)
+DEVELOPMENT_TEAM="ABC123XYZ9"                             # optional: iOS signing team
+
+# Anything else is yours: theme colours, feature flags, API URLs, fonts...
+PRIMARY_COLOR="0xFF2196F3"
+SHOW_SIGN_UP=true
+FONT_FAMILY="Manrope"
+```
+
+`doctor` and `build` fail early when a required key is missing. Files follow the usual dotenv rules (quotes, `export`, `# comments`).
+
+**iOS team:** with `DEVELOPMENT_TEAM` set, iOS builds write it into `ios/Runner.xcodeproj/project.pbxproj` and restore it afterwards; without it, your Xcode signing is left untouched.
+
+---
+
+## App Configuration & Secrets 🔐
+
+| | **Generated** (recommended; default for new projects) | **dotenv** (projects set up before 1.5.0) |
+| --- | --- | --- |
+| What ships in the app | A compiled Dart class with the client's values | The client's whole `.env` as an asset (plus the default client's) |
+| Readable by unzipping the APK/IPA | No | Yes |
+| Build-only keys (`DEVELOPMENT_TEAM`, `ASSETS_PATH`) | Left out | Shipped |
+| In your code | `UdaraConfig.primaryColor`, `UdaraConfig.get('KEY')` | `dotenv.env['KEY']` |
+
+> **Nothing inside an app is truly secret.** Compiled constants stop casual extraction, not a determined attacker. Keep private values (payment secret keys, admin tokens, signing passwords) out of `.env`: in `.secrets` if only the build needs them, behind your backend if the app does. Firebase-style "API keys" are public by design; protect those services with security rules and [App Check](https://firebase.google.com/docs/app-check).
+
+### Generated config
+
+With `app_config: mode: generated` in `udara.yaml`, every `build` and `whitelabel` writes `lib/udara_config.g.dart` for the client and restores it afterwards. Commit it: the checked-in (default client's) version is what plain `flutter run` uses, with no `--dart-define` needed.
+
+```dart
+import 'package:your_app/udara_config.g.dart';
+
+Color(int.parse(UdaraConfig.primaryColor ?? '0xFF4285F4'));   // typed constant
+UdaraConfig.getBool('SHOW_SIGN_UP', fallback: false);          // flutter_dotenv-style API
+UdaraConfig.env['API_BASE_URL'];
+```
+
+- Every key becomes a constant (`PRIMARY_COLOR` → `primaryColor`). All clients and `.env_test` share the same fields; a key missing from any of them is `String?`, so code that compiles for one client compiles for all.
+- `env`, `get`, `maybeGet`, `getInt`, `getDouble`, `getBool`, `isEveryDefined` and `isInitialized` behave like flutter_dotenv's; `UdaraConfig.client` and `UdaraConfig.isTestEnvironment` say which build you're in.
+- Options:
+
+  ```yaml
+  app_config:
+    mode: generated                   # or dotenv
+    output: lib/udara_config.g.dart   # must be under lib/
+    class_name: UdaraConfig
+    exclude: [DEVELOPMENT_TEAM, ASSETS_PATH]   # never compiled in
+    include: [BANK_NAME, PRIMARY_COLOR]        # optional: ONLY these are compiled in
+  ```
+
+  With `include`, nothing else reaches the app even if it's in `.env`. `doctor` warns when code reads a key that isn't listed (it would be null).
+- **Root `.env` for native builds:** only when a native build file reads it (e.g. Gradle signing reading `RELEASE_STORE_PASSWORD`), and only during `udara_cli build`, it is written as the client's `.env` plus `.secrets`, never registered as an asset, and removed afterwards. Make release builds with `udara_cli build`.
+
+### Build-time secrets: `.secrets`
+
+`clients/<client>/.secrets` (and `.secrets_test` for `--test`) use the same `KEY=VALUE` format but are **never** compiled in, bundled, copied into branding assets or listed. Hooks get the path as `UDARA_SECRETS_FILE` (`source "$UDARA_SECRETS_FILE"`). `doctor` fails when a `.secrets` file isn't git-ignored, and warns about secret-looking values (`sk_live_…`, `*_SECRET`, `*_PASSWORD`, `*_TOKEN`, private keys) in config that ships.
+
+### dotenv mode
+
+Without an `app_config` section, the client's `.env` is staged as the root `.env`, registered under `flutter.assets` with `clients/default/.env` as the fallback, and `--dart-define=CLIENT_ENV=.env` is passed to Flutter:
 
 ```dart
 const envFile = String.fromEnvironment('CLIENT_ENV', defaultValue: 'clients/default/.env');
 await dotenv.load(fileName: envFile);
-dotenv.env['VARIABLE_NAME'];
 ```
-
-`build` and `doctor` remind you that the file is readable in the shipped app.
-
-**Example use cases for client values** (either mode):
-- Feature flags: `SHOW_SIGN_UP=true` to enable/disable signup for specific clients
-- API configuration: Different `API_BASE_URL` values per client
-- Theme customization: Client-specific `PRIMARY_COLOR` and `SECONDARY_COLOR` values
-- Custom fonts: Client-specific `FONT_FAMILY` for typography customization
-
-## IOS BUILDS: iOS Development Team ID
-
-You can now configure individual **Apple Developer Team IDs** on a per-client basis. During iOS builds, `udara_cli` dynamically patches your Xcode project (`ios/Runner.xcodeproj/project.pbxproj`) with the target client's team ID and automatically reverts it back to default during project cleanup.
 
 ---
 
-### Context
+## Custom Fonts
 
-1. **Add the Team ID to the Client Environment**:
-Open your client's environment file (`clients/<CLIENT_NAME>/.env` or `.env_test`) and define the `DEVELOPMENT_TEAM` key with your 10-character Apple Developer Team ID:
-```env
-# clients/microsoft/.env
-APP_NAME_PROD="Microsoft App"
-BUNDLE_ID="com.microsoft.whitelabel"
-APP_ICON_PATH="assets/branding/microsoft/logo_small.png"
-ASSETS_PATH="clients/microsoft/"
+Put the font files and a `fonts.yaml` in `clients/<name>/fonts/` (or `<ASSETS_PATH>/fonts/`). `fonts.yaml` is the list that goes under pubspec's `fonts:`, without the `fonts:` key itself:
 
-# iOS Signing Configuration
-DEVELOPMENT_TEAM="ABC123XYZ9"
-
-```
-
-
-2. **Run the Build**:
-Trigger your iOS build targeting the client:
-```bash
-udara_cli build --client microsoft --platform ios
-
-```
-
-
->  **Note:** If `DEVELOPMENT_TEAM` is omitted from the client's environment file, `udara_cli` will leave your Xcode project's existing signing configuration untouched.
-
-### Required Environment Variables
-
-Each client must have corresponding environment files in their respective `clients/client_name/` directory. The CLI reads these keys:
-
-```env
-# Display name applied to the app (also used for .env_test builds)
-APP_NAME_PROD="Your App"
-
-# Bundle/Package Identifier
-BUNDLE_ID="com.yourcompany.yourapp"
-
-# Folder (inside clients/<name>/) whose contents are copied to assets/branding/<name>/
-ASSETS_PATH="clients/default/"
-
-# Launcher icon source, expressed as its synced location
-APP_ICON_PATH="assets/branding/default/logo_small.png"
-
-# Optional: splash screen image (falls back to APP_ICON_PATH)
-APP_LOGO_PATH="assets/branding/default/logo_large.png"
-
-# Optional: iOS signing team (see below)
-DEVELOPMENT_TEAM="ABC123XYZ9"
-```
-
-`APP_NAME_PROD`, `BUNDLE_ID`, `ASSETS_PATH` and `APP_ICON_PATH` are mandatory; `doctor` and `build` fail early when one is missing. Every other key is yours to define and read in the app via `dotenv.env['KEY']`.
-
-Env files follow the usual dotenv rules: `KEY=VALUE`, optional single or double quotes, `export KEY=VALUE`, and `# comments` on their own line or after a value.
-
-### Optional Theme Variables
-
-These variables can be used to modify app colors based on the environment:
-
-```env
-# Theme Colors (hex format with 0x prefix)
-PRIMARY_COLOR="0xFFF26333"
-BACKGROUND_COLOR="0XFFF9F9F9"
-SECONDARY_COLOR="0xFF81BF42"
-TERTIARY_COLOR=""
-
-# Feature Modifications
-SHOW_HOME_TEXT=true
-SHOW_SIGN_UP=true
-ENABLE_LION=true
-ONBOARDING_IMAGES=
-
-# Custom Typography
-FONT_FAMILY="Manrope"
-```
-
-### Client-Specific Custom Fonts
-
-The CLI supports client-specific custom fonts. Fonts are looked up in `clients/<name>/fonts/` first, then `<ASSETS_PATH>/fonts/`. Here's how to set them up:
-
-#### 1. Add Fonts to Client Directory
-
-Place your font files in the client's `fonts/` directory:
-
-```
-clients/
-└── clientA/
-    └── fonts/
-        ├── Manrope-Regular.ttf
-        ├── Manrope-Bold.ttf
-        └── fonts.yaml  <-- Required for auto-configuration
-```
-Inside the fonts/ directory, create a fonts.yaml file. 
-Important: Do not include the top-level fonts: key; start directly with the list of families. 
-The format must match Flutter's expected structure:
-
-```
+```yaml
 - family: Manrope
   fonts:
     - asset: assets/fonts/Manrope-Regular.ttf
@@ -416,447 +188,126 @@ The format must match Flutter's expected structure:
       weight: 700
 ```
 
-#### 2. Configure Font in Environment File
-
-Add the font family name to your client's `.env` file:
-
-```env
-FONT_FAMILY="Manrope"
-```
-
-#### 3. Use Font in Your Application
-
-Access the font family dynamically in your Flutter app:
-
-```dart
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-
-TextStyle(
-  fontFamily: dotenv.env['FONT_FAMILY'] ?? 'Roboto', // Fallback to default
-  color: context?.textTheme.bodyLarge?.color,
-  fontWeight: FontWeight.w800,
-  fontFamilyFallback: const ['Roboto', 'Noto Sans', 'Arial'],
-)
-```
-
-#### How Font Replacement Works
-
-When you run the whitelabel or build command:
-
-1. The CLI checks if the client has a `fonts/` directory
-2. If custom fonts exist, it snapshots `assets/fonts/` (in `.udara/`) and backs up `pubspec.yaml`
-3. Replaces the contents of `assets/fonts/` with the client's fonts
-4. If a `fonts.yaml` configuration exists in the client's fonts directory, it applies the font families to `pubspec.yaml`
-5. During runtime, your app reads the `FONT_FAMILY` environment variable and applies the appropriate font
-
-When the run ends (or, after `whitelabel --keep`, when the next run starts or you run `udara_cli clean`), the original fonts and the pubspec `fonts:` section come back exactly. Every run starts from the project's own fonts, so a client without fonts uses the default ones even right after a client with fonts, and two clients' fonts never mix.
-
-### Example Environment Files
-
-**`clients/default/.env`:**
-```env
-APP_NAME_DEV="Default App Dev"
-APP_NAME_STAGING="Default App Staging"
-APP_NAME_PROD="Default App"
-BUNDLE_ID="com.company.defaultapp"
-# iOS Signing Configuration
-DEVELOPMENT_TEAM="ABC123XYZ9"
-ASSETS_PATH="clients/default/"
-APP_ICON_PATH="assets/branding/default/logo_small.png"
-APP_LOGO_PATH="assets/branding/default/logo_large.png"
-APP_LOGO_ICON_PATH="assets/branding/default/logo_small.png"
-PRIMARY_COLOR="0xFFF26333"
-BACKGROUND_COLOR="0XFFF9F9F9"
-SECONDARY_COLOR="0xFF81BF42"
-FONT_FAMILY="Roboto"
-SHOW_HOME_TEXT=true
-SHOW_SIGN_UP=true
-ENABLE_LION=true
-```
-
-**`clients/clientA/.env`:**
-```env
-APP_NAME_DEV="Client A App Dev"
-APP_NAME_STAGING="Client A App Staging"
-APP_NAME_PROD="Client A App"
-BUNDLE_ID="com.company.clientaapp"
-# iOS Signing Configuration
-DEVELOPMENT_TEAM="ABC123XYZ9"
-ASSETS_PATH="clients/clientA/"
-APP_ICON_PATH="assets/branding/clientA/logo_small.png"
-APP_LOGO_PATH="assets/branding/clientA/logo_large.png"
-APP_LOGO_ICON_PATH="assets/branding/clientA/logo_small.png"
-PRIMARY_COLOR="0xFF2196F3"
-BACKGROUND_COLOR="0XFFFFFFFF"
-SECONDARY_COLOR="0xFF4CAF50"
-FONT_FAMILY="Manrope"
-SHOW_HOME_TEXT=false
-SHOW_SIGN_UP=true
-ENABLE_LION=false
-```
+For that client's run, `assets/fonts/` is replaced with the client's fonts and the families go into `pubspec.yaml`; read the family from config (e.g. `UdaraConfig.fontFamily` from `FONT_FAMILY`). The original fonts and pubspec come back exactly afterwards, so a client without fonts always gets the project's own, and two clients' fonts never mix.
 
 ---
 
-## Usage
-
-### Basic Build Command
+## Building
 
 ```bash
-udara_cli build --client clientA --platform android
-```
-
-### Build Options
-
-- `--client` or `-c`: **Required** - The client to build for (e.g., `default`, `clientA`). Comma-separate or repeat it to build several.
-- `--all-clients`: Build every client in `clients/` instead of naming them
-- `--platform` or `-p`: Target platform(s): `android`, `ios` or `android,ios` - defaults to `android`
-- `--type` or `-t`: Android build type(s): `aab`, `apk` or `aab,apk` - defaults to `aab` (iOS always builds an IPA)
-- `--build-version`: Version to build, for all clients (`1.4.0+12`) or per client (`clientA=1.4.0+12,clientB=2.0.0`)
-- `--parallel` or `-j`: How many jobs build at the same time: `auto` (default), or a number
-- `--test`: Build using the test environment (`.env_test`)
-- `--fail-fast`: Stop at the first failed build instead of continuing
-- `--slack`: Send build notifications to Slack
-- `--slack-channel`: Specify Slack channel (e.g., `#builds`)
-
-### Global Options
-
-- `--verbose`: print stack traces on failure and Slack debug output
-- `--version` or `-v`: print the CLI version
-
-### Examples
-
-```bash
-# Build Android AAB for clientA
-udara_cli build --client clientA --platform android --type aab
-
-# Build Android APK for clientB
-udara_cli build --client clientB --platform android --type apk
-
-# Build iOS for default client
-udara_cli build --client default --platform ios
-
-# Build with test environment
-udara_cli build --client clientA --platform android --test
-
-# Build with Slack notifications
-udara_cli build --client clientA --platform android --slack --slack-channel #builds
-
-# Batch: two clients, AAB + APK + IPA each (6 builds)
+udara_cli build --client clientA                                  # Android App Bundle
+udara_cli build --client clientA --platform ios                   # IPA
+udara_cli build --client clientA --type apk --test                # APK with .env_test
 udara_cli build --client clientA,clientB --platform android,ios --type aab,apk
-
-# Every client's App Bundle
-udara_cli build --all-clients
+udara_cli build --all-clients --build-version 2.1.0+45
 ```
 
-Finished artifacts are collected in `build/udara/<client>/`, named
-`<client>_v<version>.<apk|aab|ipa>`, so later builds never overwrite them.
+| Option | |
+| --- | --- |
+| `--client`, `-c` | Client(s), comma-separated or repeated |
+| `--all-clients` | Every client in `clients/` |
+| `--platform`, `-p` | `android` (default), `ios`, or both |
+| `--type`, `-t` | `aab` (default), `apk`, or both. iOS always builds an IPA |
+| `--build-version` | For all clients (`1.4.0+12`) or per client (`clientA=1.4.0+12,clientB=2.0.0`); without `+n` the pubspec build number is kept. pubspec.yaml isn't edited |
+| `--parallel`, `-j` | Jobs at the same time: `auto` (default, 1-4 from RAM/CPU) or a number |
+| `--test` | Use `.env_test` (and `.secrets_test`) |
+| `--fail-fast` | Stop at the first failure |
+| `--slack`, `--slack-channel` | Slack notifications (default channel `#builds`) |
+| `--progress-file` | Keep a JSON progress snapshot in this file |
 
-### Batch & Parallel Builds
+Artifacts are collected in `build/udara/<client>/<client>_v<version>.<aab|apk|ipa>`, so later builds never overwrite them.
 
-Pass several clients, platforms or types and `build` runs them as a batch.
-The batch is split into **jobs of one client on one platform** (Android AAB
-and APK share a job and its Gradle caches; iOS is its own job):
+**What a build does:** validates the client → backs up everything it will touch → generates the config, copies branding assets and fonts → sets bundle id and app name, generates icons and splash → runs `after_branding` hooks → `flutter build` → checks the signing → runs `after_build` hooks → **restores the project** (always, even on failure or Ctrl+C) → records history and notifies Slack. Afterwards `git status` is exactly as before: bundle id, app name, `res/`, `Assets.xcassets`, `Info.plist`, the Xcode project and Firebase outputs included.
+
+**Signing check:** when no release keystore is found, Gradle can silently sign a release build with the debug key, which Play rejects. A debug-signed AAB fails the build (kept as `*.debug-signed.aab`, before any `after_build` hook sees it); a debug-signed APK only warns, since those are normal for QA.
+
+### Batch & parallel builds
+
+A batch is split into **jobs of one client on one platform** (AAB and APK share a job and its Gradle caches). With `--parallel` above 1, each job runs in its own copy of the project under `~/.udara_cli/workspaces/`, synced before every job (uncommitted changes included), so builds never touch each other or your working copy. The copies keep their build, Gradle and CocoaPods caches; `udara_cli clean --workspaces` deletes them.
+
+- A live view shows percent, ETA (learned from your build history) and each job's step; CI logs and IDE consoles get one line per event.
+- Each job's output is in `build/udara/logs/<client>-<platform>.log`, and the summary shows the lines around any failure.
+- A failed build doesn't stop the rest (unless `--fail-fast`); the exit code is non-zero if any failed.
+- Ctrl+C or an IDE stop button stops every job and every Flutter/Gradle/Xcode process, and keeps finished artifacts.
+
+> On a fresh machine, run one build first so Gradle and CocoaPods download their caches once, instead of every parallel job waiting on the same download.
+
+## Running a Client Locally (`whitelabel`)
 
 ```bash
-# 2 clients × Android + iOS = 4 jobs, 2 building at the same time
-udara_cli build --client clientA,clientB --platform android,ios --type aab,apk --parallel 2
+udara_cli whitelabel --client clientA --keep    # or --test --keep
+flutter run                                     # dotenv mode: flutter run --dart-define=CLIENT_ENV=.env
 ```
 
-- **Parallel:** `--parallel auto` (the default) picks 1-4 from your RAM and CPU
-  cores; `--parallel N` sets it; `--parallel 1` builds one after another.
-  Parallel jobs each run in their own copy of the project under
-  `~/.udara_cli/workspaces/`, synced before every job (uncommitted changes
-  included), so builds never touch each other's files or your working copy.
-  The copies keep their `build/`, Gradle and CocoaPods caches between runs;
-  `udara_cli clean --workspaces` deletes them.
-- **Progress:** a live view shows overall percent, an ETA, and what each
-  running job is doing. Estimates come from your own build history, so they
-  get more accurate after the first few builds. In CI logs and IDE consoles
-  it prints a line per event instead. `--progress-file <path>` also writes
-  a JSON snapshot, which the IDE extensions use for their progress bars.
-- **Logs:** each job's full output is in `build/udara/logs/<client>-<platform>.log`;
-  the summary shows the lines around any failure.
-- **Failures:** a failed build doesn't stop the batch. The summary lists
-  every build with its version, duration and artifact or error; every build
-  gets its own history entry and Slack message; the exit code is non-zero
-  if any failed. `--fail-fast` stops everything at the first failure.
-- **Cancel:** Ctrl+C (or an IDE stop button) stops every job and every
-  Flutter/Gradle/Xcode process it started, and keeps the artifacts that
-  already finished.
+`--keep` applies the client's full branding and leaves it in place so you can run the app as that client; this is what the extensions' Run Client does. Everything it changes is backed up in `.udara/`: the next `whitelabel` or `build` restores the original project first, so nothing carries over between clients, and `udara_cli clean` restores it too. `doctor` shows which client the project is branded as.
 
-> **First run on a fresh machine:** parallel jobs share Gradle's one-time
-> distribution download. Run a single build first (or keep `--parallel 1`)
-> until Gradle and CocoaPods have their caches, or jobs may time out waiting
-> for each other's download.
-
-### Build a Specific Version
-
-`--build-version` sets the app version without editing `pubspec.yaml`
-(it is passed to Flutter as `--build-name`/`--build-number`):
-
-```bash
-udara_cli build --client clientA --build-version 2.1.0+45
-udara_cli build --client clientA,clientB --build-version clientA=2.1.0+45,clientB=3.0.0
-udara_cli build --all-clients --build-version 1.4.0          # same for all; keeps the pubspec +build number
-```
-
-Clients without a version keep the pubspec one. The artifact name, history,
-Slack message and hooks (`UDARA_VERSION`) all use the version that was built.
-
----
-
-## Build Process
-
-The CLI performs the following steps:
-
-1. **Validation & Setup**: Checks the project files, that the client and its env file exist, and that the required keys are set
-2. **Project Configuration**:
-   - Backs up `pubspec.yaml`, `flutter_launcher_icons.yaml` and the iOS project file
-   - Stages the client env as root `.env`
-   - Handles client-specific fonts and copies client assets
-   - Applies `DEVELOPMENT_TEAM` for iOS builds
-3. **Build Commands**:
-   - Runs `flutter pub get`
-   - Sets bundle ID and app name
-   - Generates launcher icons
-   - Creates splash screens
-   - Fixes platform-specific issues
-4. **Final Build**: Builds the app and collects the artifact as `build/udara/<client>/<client>_v<version>.<apk|aab|ipa>`
-5. **Cleanup**: Restores the original project state (always runs, even on failure): config files, the generated config, and everything the branding steps and hooks changed: `applicationId`, `AndroidManifest.xml`, `Info.plist`, the Xcode project, Android `res/`, `Assets.xcassets`, `Base.lproj`, and Firebase outputs (`firebase_options.dart`, `google-services.json`, `GoogleService-Info.plist`, `firebase.json`). A build leaves `git status` exactly as it found it; `whitelabel` is the command that keeps branding applied.
-6. **History**: Records the build (success or failure) to `.udara_build_history.json`
-   (`after_branding` hooks run at the end of step 3, `after_build` hooks after step 4)
-7. **Notifications** (if enabled): Sends a build summary to Slack, and uploads the APK for APK builds
-
-### Persistent Whitelabeling (`whitelabel`)
-
-`build` always restores the project afterwards. `whitelabel` applies the same branding steps without building. Native changes (app name, bundle id, launcher icons, splash, iOS team) always persist; the staged project files (root `.env`, `assets/branding/<client>/`, `pubspec.yaml`, `flutter_launcher_icons.yaml`) are restored afterwards unless you pass `--keep`, which leaves the project runnable as that client:
-
-```bash
-udara_cli whitelabel --client clientA                # native branding only
-udara_cli whitelabel --client clientA --keep         # or --test --keep
-flutter run --dart-define=CLIENT_ENV=.env
-```
-
-With `--keep`, everything the run changes (pubspec, launcher icon config, fonts, the generated config, native branding) is backed up in `.udara/` and left applied. The next `whitelabel` or `build` (including the editors' Run Client) first restores the original project from those backups, so switching clients never carries anything over from the previous one. `udara_cli clean` restores it too. `doctor` shows which client the project is currently branded as.
-
-Projects branded with `--keep` by udara_cli before 1.5.0 have no backups; for those, `clean` puts the pubspec `fonts:` section, the branding asset entry, the splash image and the launcher icon path back as they are in your last commit.
+Without `--keep`, only the native branding (app name, bundle id, icons, splash, iOS team) stays; the staged files are restored straight away.
 
 ---
 
 ## Hooks 🪝
 
-Hooks run your own scripts at fixed points of `build` and `whitelabel`, for
-per-client setup the CLI doesn't know about, such as push notifications,
-analytics or uploads. Declare them in `udara.yaml` in the project root:
+Run your own scripts at fixed points of `build` and `whitelabel`, for per-client setup the CLI doesn't know about. Declare them in `udara.yaml`:
 
 ```yaml
 hooks:
   after_branding:
     - ./scripts/firebase_configure.sh
-    - ./scripts/onesignal_configure.sh
   after_build:
     - ./scripts/upload_to_store.sh
 ```
 
 | Hook | When it runs |
 | --- | --- |
-| `after_branding` | After the client's bundle id, app name, icons, splash and iOS team are applied, before `flutter build`. Runs in `build` and `whitelabel`, so the IDE extensions' Run Client gets it too. |
-| `after_build` | After a successful `build`, with `UDARA_ARTIFACT` pointing at the renamed artifact. |
+| `after_branding` | After bundle id, app name, icons, splash and iOS team are applied, before `flutter build`. Also in `whitelabel`, so Run Client gets it. |
+| `after_build` | After a successful `build`, with `UDARA_ARTIFACT` set to the artifact. |
 
-Each command runs through the shell in the project root with variables such
-as `UDARA_CLIENT`, `UDARA_CLIENT_DIR`, `UDARA_BUNDLE_ID`, `UDARA_ENV`,
-`UDARA_PLATFORM` and `UDARA_VERSION`. A command that exits non-zero stops the
-run, and the project is restored as usual. `udara_cli doctor` validates hook
-names and checks each script exists and is executable.
+Commands run in the project root with `UDARA_CLIENT`, `UDARA_CLIENT_DIR`, `UDARA_BUNDLE_ID`, `UDARA_ENV`, `UDARA_SECRETS_FILE`, `UDARA_PLATFORM`, `UDARA_VERSION` and more. A non-zero exit stops the run and the project is restored. [`example/hooks/`](example/hooks/) has ready-made Firebase/FCM and OneSignal hooks and the full variable list.
 
-**Ready-made examples** live in [`example/hooks/`](example/hooks/): a
-Firebase / FCM push notification setup (`flutterfire configure` from a
-per-client `service_account.json`) and a OneSignal setup (iOS Notification
-Service Extension bundle id and app groups), plus the full list of variables.
-
-## Diagnostics & Utility Commands 🩺
-
-### Validate Your Setup (`doctor`)
-
-Before running a build, you can check your entire project — or a single client — for common issues: missing dependencies, missing `.env` files, missing required keys, icon/logo paths that don't resolve to real files in the client folder (or are still the generated placeholders), malformed `fonts.yaml` configuration or font files it references that don't exist, invalid bundle ids, and leftover state from an interrupted build.
+## Diagnostics
 
 ```bash
-# Check the whole project (all clients)
-udara_cli doctor
-
-# Check a single client
-udara_cli doctor --client clientA
+udara_cli doctor [--client clientA]            # validate the project or one client
+udara_cli history [--client clientA] [--limit 25] [--clear]
+udara_cli diff --client-a clientA --client-b clientB [--test] [--all]
 ```
 
-Each check reports as a pass, warning, or failure. `doctor` exits with a non-zero status code if anything fails, so it's safe to use as a pre-build gate in CI.
+- **`doctor`** checks dependencies, env files and required keys, icon/logo paths and placeholders, `fonts.yaml`, bundle ids, hooks, generated config, secrets and leftover state. It exits non-zero on failure, so it works as a CI gate.
+- **`history`** shows recent builds from `.udara_build_history.json` (last 50, successes and failures).
+- **`diff`** compares two clients' env files and highlights the keys that differ.
 
-### Build History (`history`)
-
-Every `build` run — whether it succeeds or fails — is automatically recorded to a project-local `.udara_build_history.json` file (kept to the most recent 50 entries). Use `history` to review recent builds without digging through terminal scrollback:
-
-```bash
-# Show the 10 most recent builds
-udara_cli history
-
-# Show the last 25 builds for a specific client
-udara_cli history --client clientA --limit 25
-
-# Clear all recorded history
-udara_cli history --clear
-```
-
-> **Tip:** `udara_cli setup` adds `.udara_build_history.json` to your `.gitignore` — it's local build state, not something you need in version control.
-
-### Compare Clients (`diff`)
-
-If two clients are behaving differently and you're not sure why, `diff` compares their environment files side by side and highlights exactly which keys differ.
+## Command Reference
 
 ```bash
-# Compare production .env for two clients
-udara_cli diff --client-a clientA --client-b clientB
-
-# Compare .env_test files instead
-udara_cli diff --client-a clientA --client-b clientB --test
-
-# Show every key, not just the ones that differ
-udara_cli diff --client-a clientA --client-b clientB --all
-```
-
----
-
-## IDE Extensions 🧩
-
-The repo ships two editor integrations that sit on top of the CLI. Both show
-every client with its env files, and let you run (`whitelabel` + `flutter
-run`) or build any client from a click:
-
-- **VS Code** — [Udara Whitelabel on the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=deecency.udara-whitelabel);
-  source in `extensions/vscode/` ([README](extensions/vscode/README.md)).
-- **Android Studio / IntelliJ IDEA** — [Udara Whitelabel on the JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34541-udara-whitelabel);
-  source in `extensions/jetbrains/` ([README](extensions/jetbrains/README.md)).
-
-They call `udara_cli list-clients --json` and `udara_cli history --json`, which
-are also handy for your own scripts.
-
-## Commands Reference
-
-### Setup Commands
-
-```bash
-# Full project setup
-udara_cli setup
-
-# Initialize specific clients
-udara_cli setup --clients clientA,clientB,clientC
-
-# Configure Slack notifications
-udara_cli setup --notify
-
-# Reset all configurations
-udara_cli setup --reset
-```
-
-### Build Commands
-
-```bash
-# Build for a client (project restored afterwards)
-udara_cli build --client <name> [options]
-
-# Apply a client's native branding; add --keep to leave it runnable as that client
+udara_cli setup [--clients a,b] [--notify] [--reset]
+udara_cli build --client <name> [options]          # see Building
 udara_cli whitelabel --client <name> [--test] [--keep]
-
-# Restore project state (after an interrupted build or a whitelabel) and run flutter clean
-udara_cli clean
-
-# Delete the workspaces parallel builds use (frees disk space)
-udara_cli clean --workspaces
-
-# List all available clients with app name and bundle id (add --json for scripts)
-udara_cli list-clients
-udara_cli list-clients --json
-
-# Show help
-udara_cli --help
-udara_cli build --help
+udara_cli migrate-config [--apply] [--include-detected] [--force]
+udara_cli clean                                    # restore the project, then flutter clean
+udara_cli clean --workspaces                       # delete parallel build workspaces
+udara_cli list-clients [--json]
+udara_cli doctor | history | diff                  # see Diagnostics
+udara_cli <command> --help                         # --verbose for stack traces
 ```
-
-### Diagnostics Commands
-
-```bash
-# Validate project & client setup
-udara_cli doctor
-udara_cli doctor --client <name>
-
-# View recent build history
-udara_cli history
-udara_cli history --client <name> --limit 25
-udara_cli history --clear
-
-# Compare env configuration between two clients
-udara_cli diff --client-a <name> --client-b <name>
-udara_cli diff --client-a <name> --client-b <name> --test
-udara_cli diff --client-a <name> --client-b <name> --all
-```
-
----
-
-## Prerequisites
-
-- Flutter SDK installed and configured
-- Dart SDK (comes with Flutter)
-- Proper project structure as outlined above
-- Required dependencies in `pubspec.yaml`:
-  - `flutter_dotenv` (required for environment variable management)
-  - `flutter_launcher_icons`
-  - `splash_master`
-  - `rename`
-
----
 
 ## Troubleshooting
 
-### Common Issues
+Run `udara_cli doctor` first; it catches most problems before a build.
 
-> Run `udara_cli doctor` first — it catches most of the issues below (missing `.env` files, missing keys, broken asset paths, missing dependencies) before you even attempt a build.
+- **Command not found:** add the pub cache to your PATH (see [Installation](#installation)).
+- **Play rejects the bundle ("signed with the wrong key"):** check `android/key.properties` uses `storeFile`, `storePassword`, `keyAlias`, `keyPassword` (or set `RELEASE_STORE_FILE` and friends in the client's `.env`/`.secrets` if your Gradle reads the root `.env`), and don't let the release `buildType` fall back to `signingConfigs.debug`.
+- **Project still branded after a run or crash:** `udara_cli clean`.
+- **A client behaves differently:** `udara_cli diff` it against one that works.
 
-1. **Client not found**: Ensure the client directory exists in `clients/` and has the corresponding `.env` file in that directory
-2. **Missing assets**: Check that all required asset paths exist and are correctly specified in the environment file
-3. **Build failures**: Ensure all Flutter dependencies are properly installed and the project builds normally before using the CLI
-4. **Environment variables not loading**: Verify that `flutter_dotenv` is installed and properly initialized in your app's main function
-5. **Command not found**: Make sure the pub cache bin directory is in your PATH
-6. **Client behaving differently than expected**: Run `udara_cli diff --client-a <name> --client-b <name>` to compare its configuration against a working client
+Found a bug? [Open an issue](https://github.com/deecency/udara_cli/issues) with the error output (`--verbose`).
 
-### Getting Help
+## Contributing
 
-- Check the [issues page](https://github.com/deecency/udara_cli/issues) for known issues
-- Create a new issue with detailed error messages and steps to reproduce
-- Run `udara_cli --help` for command documentation
-
----
-
-## Contributing 🤝
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+Pull requests are welcome.
 
 ```bash
-dart pub get
-dart analyze
-dart test          # unit tests for env parsing, pubspec editing, asset sync, cleanup
+dart pub get && dart analyze && dart test
 dart run bin/udara_cli.dart --help
 ```
 
----
-
-## License 📄
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-## Changelog 📝
-
-See [CHANGELOG.md](CHANGELOG.md) for a list of changes in each version.
-
----
-
-**Made with ❤️ for the Flutter community**
+MIT licensed. See [CHANGELOG.md](CHANGELOG.md) for release notes.

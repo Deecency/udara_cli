@@ -27,6 +27,7 @@
 - Client fonts replace `assets/fonts` from a snapshot instead of parking the originals in `assets/fonts.bak`, so a project that had no `assets/fonts` gets none back. A leftover `assets/fonts.bak` from older versions is still restored.
 - `clean` on a project branded by an older version (no backups) repairs the sections udara_cli manages (pubspec `fonts:`, the `assets/branding/` entry, the splash image and the launcher icon path) from the last commit.
 - `assets/branding` is snapshotted and restored exactly, so a branding folder a run created (including the default client's) no longer lingers after cleanup, and switching clients leaves no other client's folder behind.
+- `build` checks each Android artifact's signing certificate. Gradle signs a release build with the debug key when it finds no release keystore (for example a misnamed `key.properties` entry), and the build still succeeds; Google Play then rejects the upload. A debug-signed AAB now fails the build and is kept as `*.debug-signed.aab` so it can't be uploaded by mistake, before any `after_build` hook runs. A debug-signed APK only warns, since those are common for QA.
 - `doctor` reports a project branded with `--keep` as such instead of as an interrupted run.
 
 ## 1.4.0

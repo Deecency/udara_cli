@@ -702,6 +702,11 @@ restored afterwards, even when a build fails. Every build is recorded in
               version: prepared.version.toString(),
               type: target.type));
 
+      // Before after_build hooks, so an upload hook never gets it.
+      if (target.platform == 'android') {
+        await _checkReleaseSigning(client, target, artifact);
+      }
+
       _setStep('Running after_build hooks');
       await prepared.hooks.run(
         HookPoint.afterBuild,
@@ -739,6 +744,37 @@ restored afterwards, even when a build fails. Every build is recorded in
         cause: e,
       );
     }
+  }
+
+  /// Gradle signs a release build with the debug key when no release
+  /// keystore is configured, and the build still succeeds. Stores reject
+  /// such bundles, so a debug-signed AAB fails the build (renamed so it
+  /// can't be uploaded by mistake); a debug-signed APK, often used for QA
+  /// sideloading, only warns.
+  Future<void> _checkReleaseSigning(
+      String client, BuildTarget target, File artifact) async {
+    if (ArtifactSigning.isDebugSigned(artifact) != true) return;
+
+    const fix = 'Configure the release keystore: RELEASE_STORE_FILE (and its '
+        'passwords/alias) in clients/<client>/.env or .secrets for Gradle '
+        'configs that read the root .env, or storeFile, storePassword, '
+        'keyAlias and keyPassword in android/key.properties. Also make the '
+        'release buildType in android/app/build.gradle use '
+        'signingConfigs.release without falling back to signingConfigs.debug, '
+        'so a missing keystore fails the build.';
+    if (target.type != 'aab') {
+      Logger.warning('${p.basename(artifact.path)} is signed with the Android '
+          'DEBUG key (fine for testing, rejected by stores). $fix');
+      return;
+    }
+    final flagged =
+        artifact.path.replaceFirst(RegExp(r'\.aab$'), '.debug-signed.aab');
+    await artifact.rename(flagged);
+    throw BuildException(
+      'The $client App Bundle is signed with the Android DEBUG key; Google '
+      'Play will reject it. Kept as ${p.relative(flagged, from: projectDir)}.',
+      fix: fix,
+    );
   }
 
   // ---------------------------------------------------------------------------
