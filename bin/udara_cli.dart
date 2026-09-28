@@ -33,6 +33,7 @@ Build multiple branded versions of your app with different configurations, asset
   • doctor       - Validate project & client setup before building
   • history      - View recent build history for this project
   • diff         - Compare env configuration between two clients
+  • migrate-config - Stop shipping .env files: compile client config into a Dart class
   • clean        - Restore project state and run flutter clean
   • setup        - Configure project, clients, or notifications
   • config       - View current CLI configuration
@@ -83,6 +84,7 @@ Future<void> main(List<String> arguments) async {
     ..addCommand(DoctorCommand())
     ..addCommand(HistoryCommand())
     ..addCommand(DiffCommand())
+    ..addCommand(MigrateConfigCommand())
     ..addCommand(SlackTestCommand());
 
   try {

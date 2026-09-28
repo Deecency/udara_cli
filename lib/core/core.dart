@@ -16,3 +16,8 @@ export 'build/target_result.dart';
 export 'build/progress_view.dart';
 export 'build/workspaces.dart';
 export 'build/batch_runner.dart';
+export 'app_config/app_config_generator.dart';
+export 'app_config/app_config_settings.dart';
+export 'app_config/secret_detector.dart';
+export 'app_config/app_config_service.dart';
+export 'app_config/dotenv_migration.dart';

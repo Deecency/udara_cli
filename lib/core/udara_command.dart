@@ -96,6 +96,17 @@ abstract class UdaraCommand extends Command<void> {
     return envFile;
   }
 
+  /// The client's build-time secrets: `.secrets_test` for test builds when
+  /// it exists, otherwise `.secrets`. Null when the client has none.
+  File? resolveSecretsFile(String client, {bool isTest = false}) {
+    final dir = p.join(clientsDir.path, client);
+    for (final name in [if (isTest) '.secrets_test', '.secrets']) {
+      final f = File(p.join(dir, name));
+      if (f.existsSync()) return f;
+    }
+    return null;
+  }
+
   /// Fails when any of [requiredEnvKeys] is missing or blank in [vars].
   void validateEnvVariables(
       String client, String file, Map<String, String> vars) {

@@ -465,17 +465,11 @@ class CleanupService {
   // RESTORATION LOGIC
   // --------------------------------------------------------------------------
 
+  /// Restores every file the run backed up (pubspec, launcher icon config,
+  /// root .env, iOS project, generated app config, ...).
   Future<void> _restoreBackedUpFiles() async {
-    final filesToRestore = [
-      'pubspec.yaml',
-      'flutter_launcher_icons.yaml',
-      '.env',
-      p.join('ios', 'Runner.xcodeproj', 'project.pbxproj'),
-    ];
-
-    for (final fileName in filesToRestore) {
+    for (final fileName in config.backedUpFiles()) {
       final file = File(p.join(projectDir, fileName));
-      if (!config.hasBackup(file)) continue;
 
       Logger.info('Restoring $fileName...');
 
@@ -565,6 +559,13 @@ const _defaultExcludedPatterns = [
   '**/.env',
   '**/.env_test',
   '**/.env.*',
+  // Build-time secrets never go into the app.
+  '.secrets',
+  '.secrets_test',
+  '.secrets.*',
+  '**/.secrets',
+  '**/.secrets_test',
+  '**/.secrets.*',
   '*.pem',
   '*.key',
   '*.p12',

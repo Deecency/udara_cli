@@ -58,6 +58,7 @@ class DoctorCommand extends UdaraCommand {
     await _checkProjectStructure();
     await _checkPubspecDependencies();
     await _checkClients(argResults!['client'] as String?);
+    _checkAppConfig(argResults!['client'] as String?);
     _checkHooks();
 
     _printSummary();
@@ -155,7 +156,11 @@ class DoctorCommand extends UdaraCommand {
     }
 
     final deps = yaml['dependencies'] as YamlMap?;
-    if (deps?['flutter_dotenv'] != null) {
+    final generatedConfig = _appConfigSettings()?.isGenerated ?? false;
+    if (generatedConfig) {
+      // Not needed for generated config; the App Configuration checks
+      // report whether it can be removed.
+    } else if (deps?['flutter_dotenv'] != null) {
       _pass('"flutter_dotenv" dependency is present.');
     } else {
       _fail(
@@ -176,7 +181,9 @@ class DoctorCommand extends UdaraCommand {
 
     final flutter = yaml['flutter'] as YamlMap?;
     final assets = (flutter?['assets'] as YamlList?)?.map((a) => a.toString());
-    if (assets != null &&
+    if (generatedConfig) {
+      // Env files must NOT be assets in generated mode; checked below.
+    } else if (assets != null &&
         assets.contains(ConfigService.defaultClientEnvAsset)) {
       _pass(
           'Default env "${ConfigService.defaultClientEnvAsset}" is registered as an asset.');
@@ -455,6 +462,161 @@ class DoctorCommand extends UdaraCommand {
         }
       }
     }
+  }
+
+  AppConfigSettings? _appConfigSettings() {
+    try {
+      return AppConfigSettings.load(projectDir);
+    } on BuildException {
+      return null; // reported by _checkAppConfig
+    }
+  }
+
+  void _checkAppConfig(String? clientFilter) {
+    Logger.phase('App Configuration');
+    final AppConfigSettings settings;
+    try {
+      settings = AppConfigSettings.load(projectDir);
+    } on BuildException catch (e) {
+      _fail(e.message, fix: e.fix);
+      return;
+    }
+
+    final pubspec = File(p.join(projectDir, 'pubspec.yaml'));
+    final yaml =
+        pubspec.existsSync() ? loadYaml(pubspec.readAsStringSync()) : null;
+    final assets = (yaml is YamlMap
+                ? ((yaml['flutter'] as YamlMap?)?['assets'] as YamlList?)
+                : null)
+            ?.map((a) => '$a')
+            .toList() ??
+        const <String>[];
+
+    if (!settings.isGenerated) {
+      _warn(
+        'Client .env files are bundled with the app as plain text: anyone can read them by unzipping the APK/IPA.',
+        fix:
+            'Run "udara_cli migrate-config" to see how to compile them in instead.',
+      );
+    } else {
+      _pass(
+          'Client config is generated into ${settings.output} (no .env ships with the app).');
+
+      final output = File(p.join(projectDir, settings.output));
+      if (output.existsSync()) {
+        _pass('${settings.output} exists.');
+      } else {
+        _fail(
+            '${settings.output} is missing, so the app does not compile until a build creates it.',
+            fix:
+                'Run "udara_cli clean" or any build to generate it, then commit it.');
+      }
+
+      final envAssets = assets.where((a) {
+        final name = p.basename(a);
+        return name == '.env' ||
+            name.startsWith('.env_') ||
+            name.startsWith('.env.');
+      }).toList();
+      if (envAssets.isEmpty) {
+        _pass('No .env files are registered as assets.');
+      } else {
+        _fail(
+            '${envAssets.join(', ')} still listed under flutter.assets, so it ships with the app.',
+            fix: 'Remove it from pubspec.yaml.');
+      }
+
+      var loads = 0;
+      var imports = 0;
+      final libDir = Directory(p.join(projectDir, 'lib'));
+      if (libDir.existsSync()) {
+        for (final f in libDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))) {
+          final src = f.readAsStringSync();
+          if (RegExp(r'(?<![\w.$])dotenv\.load\s*\(').hasMatch(src)) {
+            loads++;
+            _fail(
+                '${p.relative(f.path, from: projectDir)} still calls dotenv.load(); it will fail at startup now that no .env is bundled.',
+                fix:
+                    'Remove the call and read values from ${settings.className} instead.');
+          }
+          if (src.contains('package:flutter_dotenv/')) imports++;
+        }
+      }
+      if (loads == 0) _pass('No dotenv.load() calls left in lib/.');
+      // Tests may still use flutter_dotenv (e.g. loadFromString).
+      for (final dir in const ['test', 'integration_test', 'test_driver']) {
+        final d = Directory(p.join(projectDir, dir));
+        if (!d.existsSync()) continue;
+        imports += d
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) =>
+                f.path.endsWith('.dart') &&
+                f.readAsStringSync().contains('package:flutter_dotenv/'))
+            .length;
+      }
+      final deps = yaml is YamlMap ? yaml['dependencies'] as YamlMap? : null;
+      if (imports == 0 && deps?['flutter_dotenv'] != null) {
+        _warn('flutter_dotenv is no longer imported anywhere.',
+            fix: 'flutter pub remove flutter_dotenv');
+      }
+    }
+
+    // Secrets: flag values that would reach the app, in either mode.
+    final clients = clientFilter != null
+        ? [clientFilter]
+        : (clientsDir.existsSync()
+            ? (clientsDir
+                .listSync()
+                .whereType<Directory>()
+                .map((d) => p.basename(d.path))
+                .toList()
+              ..sort())
+            : <String>[]);
+    var flagged = 0;
+    var secretFiles = 0;
+    for (final client in clients) {
+      for (final name in const ['.env', '.env_test']) {
+        final f = File(p.join(clientsDir.path, client, name));
+        if (!f.existsSync()) continue;
+        final values = ConfigService.parseEnvContent(f.readAsStringSync());
+        for (final e in values.entries) {
+          if (settings.isGenerated && settings.exclude.contains(e.key))
+            continue;
+          final why = SecretDetector.reason(e.key, e.value);
+          if (why == null) continue;
+          flagged++;
+          _warn(
+              '[$client] $name: ${e.key} looks like a secret ($why) and would ship inside the app.',
+              fix:
+                  'If the app does not need it, move it to clients/$client/.secrets.');
+        }
+      }
+      for (final name in const ['.secrets', '.secrets_test']) {
+        final f = File(p.join(clientsDir.path, client, name));
+        if (!f.existsSync()) continue;
+        secretFiles++;
+        final ignored = Process.runSync('git', ['check-ignore', '-q', f.path],
+            workingDirectory: projectDir);
+        final inRepo = Process.runSync(
+            'git', ['rev-parse', '--is-inside-work-tree'],
+            workingDirectory: projectDir);
+        if (inRepo.exitCode == 0 && ignored.exitCode != 0) {
+          _fail(
+              'clients/$client/$name is not ignored by git and could be committed.',
+              fix:
+                  'Add "clients/*/.secrets*" to .gitignore (udara_cli setup does this).');
+        }
+      }
+    }
+    if (flagged == 0)
+      _pass('No secret-looking values in the config that ships with the app.');
+    if (secretFiles > 0)
+      _pass(
+          '$secretFiles .secrets file(s) found; they are never shipped with the app.');
   }
 
   void _checkHooks() {

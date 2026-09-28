@@ -539,7 +539,9 @@ restored afterwards, even when a build fails. Every build is recorded in
     // Validate udara.yaml up front so a typo fails before the long work.
     final hooks = HooksService(projectDir);
     hooks.load();
+    final appConfig = AppConfigService(projectDir, config);
     final hookContext = HookContext(
+      secretsFile: resolveSecretsFile(client, isTest: isTest),
       command: 'build',
       projectDir: projectDir,
       client: client,
@@ -555,6 +557,10 @@ restored afterwards, even when a build fails. Every build is recorded in
 
     Logger.success('Validated "$client" ($envFileName): $appName · $bundleId · '
         'v$version${requestedVersion != null ? ' (requested)' : ''}');
+    if (!appConfig.settings.isGenerated) {
+      Logger.info('App config: .env is bundled with the app as plain text. '
+          'Run "udara_cli migrate-config" to compile it in instead.');
+    }
 
     // -------------------------------------------------------------------------
     // PHASE 2: PROJECT CONFIGURATION
@@ -576,8 +582,15 @@ restored afterwards, even when a build fails. Every build is recorded in
       }
     });
 
-    await runStep('Staging client environment as root .env',
-        () => config.copyToRootEnv(envFile));
+    if (appConfig.settings.isGenerated) {
+      await runStep(
+          'Generating ${appConfig.settings.output}',
+          () => appConfig.write(
+              client: client, envFile: envFile, isTest: isTest));
+    } else {
+      await runStep('Staging client environment as root .env',
+          () => config.copyToRootEnv(envFile));
+    }
 
     await runStep('Updating launcher icon & splash configs', () async {
       await config.updateYamlValue(
@@ -593,7 +606,11 @@ restored afterwards, even when a build fails. Every build is recorded in
       await whiteLabel.syncBrandingAssets(client, clientAssetsPath);
       await whiteLabel.applyClientFonts(client, clientAssetsPath);
       await config.updatePubspecAssets(
-          clientAssetPath: client, requiredExtraAssets: ['.env']);
+        clientAssetPath: client,
+        requiredExtraAssets:
+            appConfig.settings.isGenerated ? const [] : ['.env'],
+        keepDefaultEnv: !appConfig.settings.isGenerated,
+      );
     });
 
     if (platforms.contains('ios') && teamId != null && teamId.isNotEmpty) {
@@ -638,6 +655,7 @@ restored afterwards, even when a build fails. Every build is recorded in
     return _PreparedClient(
       version: version,
       passVersion: requestedVersion != null,
+      generatedConfig: appConfig.settings.isGenerated,
       hooks: hooks,
       hookContext: hookContext,
     );
@@ -661,7 +679,9 @@ restored afterwards, even when a build fails. Every build is recorded in
       await runStep(
           'Building ${target.platform} (${target.type.toUpperCase()})',
           () => runShell(
-              '${target.flutterCommand} --dart-define=CLIENT_ENV=.env$versionArgs'));
+              // Generated config is compiled in; only dotenv mode needs to
+              // tell the app which env file to load.
+              '${target.flutterCommand}${prepared.generatedConfig ? '' : ' --dart-define=CLIENT_ENV=.env'}$versionArgs'));
 
       final artifact = await runStep(
           'Collecting ${target.type.toUpperCase()} artifact',
@@ -813,6 +833,7 @@ class _PreparedClient {
     required this.passVersion,
     required this.hooks,
     required this.hookContext,
+    required this.generatedConfig,
   });
 
   final BuildVersion version;
@@ -822,4 +843,7 @@ class _PreparedClient {
   final bool passVersion;
   final HooksService hooks;
   final HookContext hookContext;
+
+  /// Whether the app config is a generated class (no .env to point at).
+  final bool generatedConfig;
 }

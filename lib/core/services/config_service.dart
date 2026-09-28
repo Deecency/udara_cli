@@ -158,9 +158,13 @@ class ConfigService {
   /// Rewrites the `flutter.assets` list in pubspec.yaml so that exactly one
   /// branding folder (the active client's) and the runtime env file are
   /// registered. The default client's fallback env entry is preserved.
+  ///
+  /// With [keepDefaultEnv] false (generated app config), no env file stays
+  /// registered at all, including the default client's.
   Future<void> updatePubspecAssets({
     required String clientAssetPath,
     required List<String> requiredExtraAssets,
+    bool keepDefaultEnv = true,
   }) async {
     final file = File(p.join(projectDir, 'pubspec.yaml'));
     if (!file.existsSync()) {
@@ -181,7 +185,8 @@ class ConfigService {
 
       final newAssets = currentAssets
           .map((a) => a.toString())
-          .where((asset) => !_isManagedAsset(asset))
+          .where(
+              (asset) => !isManagedAsset(asset, keepDefaultEnv: keepDefaultEnv))
           .toList();
 
       final branding = 'assets/branding/$clientAssetPath/';
@@ -204,8 +209,8 @@ class ConfigService {
 
   /// Asset entries the CLI owns and may replace: branding folders and env
   /// files, except the default client's fallback env.
-  static bool _isManagedAsset(String asset) {
-    if (asset == defaultClientEnvAsset) return false;
+  static bool isManagedAsset(String asset, {bool keepDefaultEnv = true}) {
+    if (keepDefaultEnv && asset == defaultClientEnvAsset) return false;
     if (asset.startsWith('assets/branding/')) return true;
     final name = p.basename(asset);
     return name == '.env' ||
@@ -319,6 +324,17 @@ class ConfigService {
         originalStackTrace: s,
       );
     }
+  }
+
+  /// Project-relative paths of every file currently backed up.
+  List<String> backedUpFiles() {
+    if (!_backupRoot.existsSync()) return const [];
+    return _backupRoot
+        .listSync(recursive: true)
+        .whereType<File>()
+        .map((f) => p.relative(f.path, from: _backupRoot.path))
+        .toList()
+      ..sort();
   }
 
   /// Whether a backup exists for [file].

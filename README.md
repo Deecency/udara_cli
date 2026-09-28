@@ -19,6 +19,7 @@ A powerful CLI tool for managing whitelabel Flutter projects with multi-client s
 - 🔍 **Client diffing** - Compare env configuration between two clients at a glance
 - 🧪 **Persistent whitelabeling** - Apply a client's branding and run it locally with `flutter run`
 - 🪝 **Hooks** - Run your own per-client scripts (Firebase, OneSignal, uploads) at fixed points of every build
+- 🔐 **Compiled config & secrets** - Client values compiled into a Dart class instead of a readable `.env`; build-time secrets never ship
 
 ---
 
@@ -65,10 +66,11 @@ udara_cli setup
 ```
 
 This will:
-- Install required dependencies (`rename`, `flutter_launcher_icons`, `splash_master` and `flutter_dotenv`)
+- Install required dependencies (`rename`, `flutter_launcher_icons`, `splash_master`; plus `flutter_dotenv` for projects in dotenv mode)
+- For a new project (no `clients/` yet), set `app_config: mode: generated` in `udara.yaml` so client config is compiled in rather than shipped as `.env`
 - Create `flutter_launcher_icons.yaml` configuration file
 - Add `splash_master` configuration to your `pubspec.yaml`
-- Add the CLI's local state files (`.udara/`, `.udara_build_history.json`, `/.env`) to `.gitignore`
+- Add the CLI's local state files and secrets (`.udara/`, `.udara_build_history.json`, `/.env`, `clients/*/.secrets*`) to `.gitignore`
 
 ### 2. Initialize Client Directories
 
@@ -149,70 +151,137 @@ Everything inside a client folder (except env files, secrets, `README.md` and an
 
 ---
 
-## Environment Configuration
+## App Configuration & Secrets 🔐
 
-### Important: flutter_dotenv Dependency
+Each client's `clients/<client>/.env` holds the values your app reads at
+runtime (colours, feature flags, API base URLs, …) next to the ones udara_cli
+needs for the build (bundle id, icon paths, team id). There are two ways
+those values reach the app:
 
-**This tool is heavily dependent on environment files and requires the `flutter_dotenv` package.** `udara_cli setup` adds it for you; otherwise make sure it is in your `pubspec.yaml`:
+| | **Generated** (recommended, default for new projects) | **dotenv** (default for existing projects) |
+| --- | --- | --- |
+| What ships in the app | A compiled Dart class with the client's app values | The client's whole `.env` file as an asset (plus the default client's) |
+| Read by unzipping the APK/IPA | No | Yes, in seconds |
+| Build-only keys (`DEVELOPMENT_TEAM`, `ASSETS_PATH`) | Left out | Shipped |
+| In your code | `UdaraConfig.primaryColor`, `UdaraConfig.get('KEY')` | `dotenv.env['KEY']` |
+| Needs `flutter_dotenv` | No | Yes |
 
-```yaml
-dependencies:
-  flutter_dotenv: ^5.1.0  # or latest version
-```
+> **Nothing that ships inside an app is truly secret.** Compiling values in
+> stops casual extraction, but a determined attacker can still find string
+> constants in the binary. So keep anything that must stay private
+> (payment secret keys, admin tokens, signing passwords) out of `.env`
+> entirely: put it in `.secrets` (below) if only the build needs it, or behind
+> your own backend if the app needs it. Firebase config and similar
+> "API keys" are public by design; protect those services with security
+> rules and [Firebase App Check](https://firebase.google.com/docs/app-check).
 
-### Environment File Initialization
+### Generated config
 
-You **must** have a default/base client folder and environment file that acts as a fallback. Initialize the environment in your Flutter app as follows:
+With `app_config: mode: generated` in `udara.yaml`, every `build` and
+`whitelabel` writes `lib/udara_config.g.dart` for the client being built and
+restores it afterwards. Commit the file: the checked-in version (the
+`default` client's) is what plain `flutter run` uses.
 
 ```dart
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:your_app/udara_config.g.dart';
 
-// In your main() function or initialization code
-const envFile = String.fromEnvironment(
-  'CLIENT_ENV',
-  defaultValue: 'clients/your_default_client_folder_name/.env',
-);
+Color(int.parse(UdaraConfig.primaryColor ?? '0xFF4285F4'));   // typed constant
+UdaraConfig.getBool('SHOW_SIGN_UP', fallback: false);          // same API as dotenv
+UdaraConfig.env['API_BASE_URL'];                               // same map as dotenv.env
+```
 
+- Every key becomes a constant (`PRIMARY_COLOR` → `primaryColor`). The class
+  has the same fields for every client and for `.env_test`: a key missing
+  from any of them is a nullable `String?`, so code that compiles for one
+  client compiles for all.
+- `env`, `get`, `maybeGet`, `getInt`, `getDouble`, `getBool`,
+  `isEveryDefined` and `isInitialized` behave like flutter_dotenv's.
+- `UdaraConfig.client` and `UdaraConfig.isTestEnvironment` tell you which
+  build you are in.
+- `udara.yaml` options:
+
+  ```yaml
+  app_config:
+    mode: generated                   # or dotenv
+    output: lib/udara_config.g.dart   # must be under lib/
+    class_name: UdaraConfig
+    exclude: [DEVELOPMENT_TEAM, ASSETS_PATH]   # keys never compiled in
+  ```
+
+- The `CLIENT_ENV` dart-define is no longer needed; `flutter run` just works.
+
+### Build-time secrets: `.secrets`
+
+`clients/<client>/.secrets` (and `.secrets_test` for `--test` builds) use the
+same `KEY=VALUE` format but are **never** compiled into the app, bundled,
+copied into branding assets, or shown by `list-clients`. Hooks receive the
+path as `UDARA_SECRETS_FILE`, so upload, signing or Firebase scripts can read
+them:
+
+```bash
+source "$UDARA_SECRETS_FILE"   # in a hook script
+```
+
+`udara_cli setup` adds `clients/*/.secrets*` to `.gitignore`, and `doctor`
+fails if a `.secrets` file is not ignored. `doctor` also warns about any
+secret-looking value (private keys, `sk_live_…`, `*_SECRET`, `*_PASSWORD`,
+`*_TOKEN`, …) in the config that ships with the app.
+
+### Migrating an existing project
+
+Nothing changes for existing projects until you run the migration:
+
+```bash
+git commit -am "before udara config migration"   # it refuses to run on a dirty tree
+udara_cli migrate-config            # preview: shows every change, writes nothing
+udara_cli migrate-config --apply    # migrate
+flutter analyze && udara_cli doctor
+```
+
+It:
+
+1. adds `app_config: mode: generated` to `udara.yaml`;
+2. generates `lib/udara_config.g.dart` from the default client;
+3. rewrites `dotenv.env[...]`, `dotenv.get(...)`, `maybeGet`, `getInt`,
+   `getDouble`, `getBool`, `isEveryDefined` and `isInitialized` to
+   `UdaraConfig`, removes `await dotenv.load(...)` and the now-unused
+   `CLIENT_ENV` constant, and fixes the imports;
+4. removes `.env` entries from `pubspec.yaml` assets;
+5. adds `clients/*/.secrets*` to `.gitignore`.
+
+Your `.env` files are never modified. Anything it cannot rewrite safely is
+listed instead of touched: code that writes to `dotenv.env`, a
+`dotenv.load()` inside a larger expression, prefixed imports, custom
+`DotEnv()` instances, and tests that inject values with `loadFromString`.
+Items that would break the app (like a remaining `dotenv.load()`, which
+would throw at startup once `.env` stops shipping) block `--apply` until you
+fix them (or pass `--force`). It also lists secret-looking keys so you can
+move them to `.secrets` first.
+
+**To roll back:** `git checkout . && git clean -fd lib`, or set
+`app_config: mode: dotenv` (your `.env` files are unchanged, so dotenv mode
+works again as soon as the code reads `dotenv` again).
+
+### dotenv mode (existing projects)
+
+Projects without an `app_config` section keep working exactly as before: the
+client's `.env` is staged as the root `.env`, registered under
+`flutter.assets` (together with `clients/default/.env` as a fallback), and
+`--dart-define=CLIENT_ENV=.env` is passed to Flutter. The app loads it with:
+
+```dart
+const envFile = String.fromEnvironment('CLIENT_ENV', defaultValue: 'clients/default/.env');
 await dotenv.load(fileName: envFile);
+dotenv.env['VARIABLE_NAME'];
 ```
 
-This ensures that:
-- A default environment is always loaded if no client is specified
-- Client-specific environments can override the default when building
-- Your app has access to all environment variables at runtime
+`build` and `doctor` remind you that the file is readable in the shipped app.
 
-### Client-Specific Variables
-
-Environment files can store client-specific variables for use throughout your application and whitelabel variants. Access these variables in your Flutter code using:
-
-```dart
-dotenv.env['VARIABLE_NAME']
-```
-
-### How It Works
-
-The whitelabel system operates in two phases:
-
-1. **Build Time**: When you run the CLI with a specific `--client` flag, it swaps out the environment files and configures the build process accordingly. The CLI:
-   - Loads the client-specific `.env` (or `.env_test` with `--test`) from `clients/[client_name]/`
-   - Stages a copy of it as `.env` in the project root and registers it under `flutter.assets` (an existing root `.env` is backed up and restored afterwards)
-   - Copies client-specific assets (icons, logos, fonts) to the appropriate locations
-   - Updates the app's bundle ID, app name, and other build configurations
-   - Passes `--dart-define=CLIENT_ENV=.env` to Flutter so the app loads the staged file
-
-2. **Runtime**: Once the app is running, `flutter_dotenv` reads the environment variables that were configured at build time. This allows you to:
-   - Access build configurations that were set during compilation
-   - Store and retrieve client-specific UI variables (feature flags, theme colors, API endpoints)
-   - Drive your whitelabel logic dynamically based on these variables
-   - Maintain a single codebase that adapts to different client requirements
-
-**Example Use Cases**:
+**Example use cases for client values** (either mode):
 - Feature flags: `SHOW_SIGN_UP=true` to enable/disable signup for specific clients
 - API configuration: Different `API_BASE_URL` values per client
 - Theme customization: Client-specific `PRIMARY_COLOR` and `SECONDARY_COLOR` values
-- Content variations: Different assets, logos, or branding elements per client
 - Custom fonts: Client-specific `FONT_FAMILY` for typography customization
-
 
 ## IOS BUILDS: iOS Development Team ID
 

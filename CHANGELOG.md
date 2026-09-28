@@ -1,3 +1,22 @@
+## 1.5.0
+
+* **SECURITY**:
+
+- New **generated app config** (`app_config: mode: generated` in `udara.yaml`): instead of bundling the client's `.env` as a Flutter asset (readable by anyone who unzips the APK/IPA, together with the default client's `.env`), each build generates `lib/udara_config.g.dart` with the client's values as typed constants and restores it afterwards. No config file ships, build-only keys (`DEVELOPMENT_TEAM`, `ASSETS_PATH`, configurable) are left out, and no other client's values are included. The class mirrors flutter_dotenv's API (`env`, `get`, `maybeGet`, `getInt`, `getDouble`, `getBool`, `isEveryDefined`, `isInitialized`) and has the same fields for every client and environment.
+- **`.secrets` files**: `clients/<client>/.secrets` (and `.secrets_test`) hold build-time secrets that are never compiled in, bundled, copied into branding assets or listed; hooks get their path as `UDARA_SECRETS_FILE`. `setup` git-ignores them.
+- `doctor` warns about secret-looking values that would ship with the app (in either mode), fails when a `.secrets` file isn't git-ignored, and in generated mode checks the generated file, that no `.env` is still an asset and that no `dotenv.load()` is left.
+
+* **MIGRATION** (nothing changes until you opt in):
+
+- Projects without an `app_config` section keep the existing dotenv behaviour exactly; `build` and `doctor` now point out that `.env` is readable in the shipped app.
+- New `udara_cli migrate-config` previews, then with `--apply` migrates a project: sets generated mode, generates the class from the default client, rewrites dotenv usages to the generated class, removes `dotenv.load()` calls, the unused `CLIENT_ENV` constant and `.env` assets, and git-ignores `.secrets`. `.env` files are never modified. It refuses to run on a dirty git tree (so `git checkout .` undoes it) and lists anything it can't rewrite safely; items that would break the app block `--apply` unless `--force`.
+- `setup` on a new project (no `clients/` yet) starts in generated mode and doesn't install flutter_dotenv.
+
+* **OTHER**:
+
+- Cleanup restores every file a run backed up, instead of a fixed list.
+- `clean` regenerates the default client's config after `whitelabel --keep` in generated mode.
+
 ## 1.4.0
 
 * **NEW**:

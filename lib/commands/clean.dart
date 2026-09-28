@@ -41,6 +41,21 @@ builds use. They are recreated (and re-cached) on the next parallel build.''';
     Logger.phase('Restoring Project State');
     await cleanup.performFullCleanup();
 
+    // After `whitelabel --keep`, the generated config still holds that
+    // client's values; put the default client's back.
+    final appConfig = AppConfigService(projectDir, config);
+    final defaultEnv =
+        File('${clientsDir.path}/${WhiteLabelService.defaultClientName}/.env');
+    if (appConfig.settings.isGenerated && defaultEnv.existsSync()) {
+      await appConfig.write(
+          client: WhiteLabelService.defaultClientName,
+          envFile: defaultEnv,
+          isTest: false,
+          trackForCleanup: false);
+      Logger.info(
+          'Regenerated ${appConfig.settings.output} for the default client.');
+    }
+
     Logger.phase('Flutter Clean');
     await runShell('flutter clean');
     Logger.success('Project cleaned successfully.');

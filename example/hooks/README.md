@@ -48,6 +48,7 @@ Keep per-client secrets such as `service_account.json` inside
 | `UDARA_VERSION` | `1.4.0+12` |
 | `UDARA_PLATFORM` | `android` or `ios`; in `after_branding` of a multi-target build, all of them (`android,ios`); empty for `whitelabel` |
 | `UDARA_BUILD_TYPE` | `apk`, `aab` or `ipa`; comma-separated in `after_branding` of a multi-target build; empty for `whitelabel` |
+| `UDARA_SECRETS_FILE` | `/path/to/app/clients/acme/.secrets` (when the client has one; never shipped with the app) |
 | `UDARA_ARTIFACT` | `/path/to/app/build/udara/acme/acme_v1.4.0_12.apk` (`after_build` only) |
 
 A hook that exits with a non-zero status stops the run; the project is still

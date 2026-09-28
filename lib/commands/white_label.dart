@@ -122,6 +122,8 @@ Run "udara_cli clean" to restore the project files again.
       // Validate udara.yaml up front so a typo fails before the long work.
       final hooks = HooksService(projectDir);
       hooks.load();
+      final appConfig = AppConfigService(projectDir, config);
+      final generated = appConfig.settings.isGenerated;
 
       Logger.success(
           'Validated "$client" ($envFileName): $appName · $bundleId · v$version');
@@ -146,8 +148,18 @@ Run "udara_cli clean" to restore the project files again.
         });
       }
 
-      await runStep('Staging client environment as root .env',
-          () => config.copyToRootEnv(envFile, trackForCleanup: !keep));
+      if (generated) {
+        await runStep(
+            'Generating ${appConfig.settings.output}',
+            () => appConfig.write(
+                client: client,
+                envFile: envFile,
+                isTest: isTest,
+                trackForCleanup: !keep));
+      } else {
+        await runStep('Staging client environment as root .env',
+            () => config.copyToRootEnv(envFile, trackForCleanup: !keep));
+      }
 
       await runStep('Updating launcher icon & splash configs', () async {
         await config.updateYamlValue(
@@ -163,7 +175,10 @@ Run "udara_cli clean" to restore the project files again.
         await whiteLabel.syncBrandingAssets(client, clientAssetsPath);
         await whiteLabel.applyClientFonts(client, clientAssetsPath);
         await config.updatePubspecAssets(
-            clientAssetPath: client, requiredExtraAssets: ['.env']);
+          clientAssetPath: client,
+          requiredExtraAssets: generated ? const [] : ['.env'],
+          keepDefaultEnv: !generated,
+        );
       });
 
       if (teamId != null &&
@@ -206,6 +221,7 @@ Run "udara_cli clean" to restore the project files again.
         HookPoint.afterBranding,
         HookContext(
           command: 'whitelabel',
+          secretsFile: resolveSecretsFile(client, isTest: isTest),
           projectDir: projectDir,
           client: client,
           envFile: envFile,
@@ -227,7 +243,9 @@ Run "udara_cli clean" to restore the project files again.
       Logger.phase('Next Steps');
       if (keep) {
         Logger.info('The project is now branded as "$client". Run it with:');
-        Logger.info('  flutter run --dart-define=CLIENT_ENV=.env');
+        Logger.info(generated
+            ? '  flutter run'
+            : '  flutter run --dart-define=CLIENT_ENV=.env');
         Logger.info(
             'Run "udara_cli clean" to restore the project files again.');
       } else {
