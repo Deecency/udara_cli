@@ -150,8 +150,14 @@ abstract class UdaraCommand extends Command<void> {
   /// new client's branding.
   Future<void> recoverInterruptedRun(CleanupService cleanup) async {
     if (!Directory(p.join(projectDir, '.udara')).existsSync()) return;
-    Logger.warning('Found leftover state from an interrupted run. '
-        'Restoring the project before continuing...');
+    final kept = cleanup.config.keptClient();
+    if (kept != null) {
+      Logger.info('The project is branded as "$kept" (whitelabel --keep). '
+          'Restoring the original project first...');
+    } else {
+      Logger.warning('Found leftover state from an interrupted run. '
+          'Restoring the project before continuing...');
+    }
     await cleanup.performFullCleanup();
   }
 

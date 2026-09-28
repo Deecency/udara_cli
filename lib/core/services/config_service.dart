@@ -464,8 +464,13 @@ class ConfigService {
     'ios/Runner/Base.lproj',
   ];
 
+  /// The active client's fonts are copied here; snapshotted by every run
+  /// that applies client fonts so the previous fonts come back exactly.
+  static const fontsDir = 'assets/fonts';
+
   Directory get _snapshotRoot => Directory(p.join(_udaraDir.path, 'snapshots'));
   File get _snapshotIndex => File(p.join(_udaraDir.path, 'snapshots.index'));
+  File get _keptMarker => File(p.join(_udaraDir.path, 'kept'));
 
   /// Backs up (or records as new) every native branding file and snapshots
   /// the branding folders, so [restoreNativeBranding] can undo the
@@ -479,24 +484,68 @@ class ConfigService {
         await markCreated(file);
       }
     }
-    final index = <String>[];
-    for (final rel in nativeBrandingDirs) {
+    await snapshotDirectories(nativeBrandingDirs);
+  }
+
+  /// Snapshots [fontsDir] (or records that it doesn't exist yet).
+  Future<void> snapshotFonts() => snapshotDirectories(const [fontsDir]);
+
+  /// Snapshots each folder whole. A folder that doesn't exist yet is
+  /// recorded as absent, so restoring removes it if the run created it.
+  /// Folders already snapshotted in this run keep their first snapshot.
+  Future<void> snapshotDirectories(List<String> rels) async {
+    final index = _readSnapshotIndex();
+    final known =
+        index.map((e) => e.startsWith('!') ? e.substring(1) : e).toSet();
+    for (final rel in rels) {
+      if (known.contains(rel)) continue;
       final dir = Directory(p.join(projectDir, rel));
-      if (!dir.existsSync()) continue;
-      await WorkspaceManager.sync(
-          dir, Directory(p.join(_snapshotRoot.path, rel)));
-      index.add(rel);
+      if (dir.existsSync()) {
+        await WorkspaceManager.sync(
+            dir, Directory(p.join(_snapshotRoot.path, rel)));
+        index.add(rel);
+      } else {
+        index.add('!$rel');
+      }
     }
     await _snapshotIndex.parent.create(recursive: true);
     await _snapshotIndex.writeAsString(index.join('\n'));
   }
 
+  List<String> _readSnapshotIndex() => _snapshotIndex.existsSync()
+      ? _snapshotIndex
+          .readAsLinesSync()
+          .where((l) => l.trim().isNotEmpty)
+          .toList()
+      : <String>[];
+
+  /// `whitelabel --keep` leaves its backups in place instead of restoring
+  /// them, and records the client here. The next run (or `clean`) restores
+  /// the project from them before doing anything else.
+  Future<void> markKept(String client) async {
+    await _keptMarker.parent.create(recursive: true);
+    await _keptMarker.writeAsString(client);
+  }
+
+  /// The client a `whitelabel --keep` left the project branded as, if any.
+  String? keptClient() =>
+      _keptMarker.existsSync() ? _keptMarker.readAsStringSync().trim() : null;
+
   /// Makes every snapshotted folder match its snapshot again: restores
-  /// overwritten and deleted files and removes files the build created.
+  /// overwritten and deleted files, removes files the run created, and
+  /// removes folders that didn't exist before the run.
   Future<void> restoreNativeBranding() async {
-    if (!_snapshotIndex.existsSync()) return;
-    for (final rel
-        in _snapshotIndex.readAsLinesSync().where((l) => l.trim().isNotEmpty)) {
+    for (final entry in _readSnapshotIndex()) {
+      if (entry.startsWith('!')) {
+        final created = Directory(p.join(projectDir, entry.substring(1)));
+        if (created.existsSync()) {
+          Logger.info(
+              'Removing ${entry.substring(1)}/ (created by the run)...');
+          await created.delete(recursive: true);
+        }
+        continue;
+      }
+      final rel = entry;
       final snapshot = Directory(p.join(_snapshotRoot.path, rel));
       if (!snapshot.existsSync()) continue;
       Logger.info('Restoring $rel/...');

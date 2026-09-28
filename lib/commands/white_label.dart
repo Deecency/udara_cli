@@ -86,6 +86,7 @@ Run "udara_cli clean" to restore the project files again.
           await initializeSlackService(argResults!['slack-channel'] as String);
     }
 
+    var succeeded = false;
     try {
       // -----------------------------------------------------------------------
       // PHASE 1: VALIDATION & SETUP
@@ -138,24 +139,25 @@ Run "udara_cli clean" to restore the project files again.
           platform: '',
           status: 'started');
 
-      if (!keep) {
-        // The iOS project file is deliberately not backed up: restoring it
-        // would undo the bundle id and team changes that must persist.
-        await runStep('Creating backups', () async {
-          await config.createBackup(File(p.join(projectDir, 'pubspec.yaml')));
-          await config.createBackup(
-              File(p.join(projectDir, 'flutter_launcher_icons.yaml')));
-        });
-      }
+      await runStep('Creating backups', () async {
+        await config.createBackup(File(p.join(projectDir, 'pubspec.yaml')));
+        await config.createBackup(
+            File(p.join(projectDir, 'flutter_launcher_icons.yaml')));
+        await config.snapshotFonts();
+        if (keep) {
+          // --keep leaves these backups in place instead of restoring them;
+          // the next run or `udara_cli clean` restores the whole project
+          // from them, native branding included. Without --keep, native
+          // branding is meant to persist, so it isn't snapshotted.
+          await config.snapshotNativeBranding();
+        }
+      });
 
       if (generated) {
         await runStep(
             'Generating ${appConfig.settings.output}',
             () => appConfig.write(
-                client: client,
-                envFile: envFile,
-                isTest: isTest,
-                trackForCleanup: !keep));
+                client: client, envFile: envFile, isTest: isTest));
         // No root .env here: running the app doesn't need it, and with
         // --keep it would linger. `udara_cli build` stages it for native
         // release tooling (e.g. Gradle signing) and removes it afterwards.
@@ -167,7 +169,7 @@ Run "udara_cli clean" to restore the project files again.
         }
       } else {
         await runStep('Staging client environment as root .env',
-            () => config.copyToRootEnv(envFile, trackForCleanup: !keep));
+            () => config.copyToRootEnv(envFile));
       }
 
       await runStep('Updating launcher icon & splash configs', () async {
@@ -256,13 +258,15 @@ Run "udara_cli clean" to restore the project files again.
             ? '  flutter run'
             : '  flutter run --dart-define=CLIENT_ENV=.env');
         Logger.info(
-            'Run "udara_cli clean" to restore the project files again.');
+            'Running another client switches cleanly from the original project; '
+            '"udara_cli clean" restores it (fonts, pubspec, config and native branding).');
       } else {
         Logger.info(
             'Native branding for "$client" is applied; staged project files are being restored.');
         Logger.info(
             'Use "udara_cli whitelabel --client $client --keep" to keep the project runnable as this client.');
       }
+      succeeded = true;
     } catch (e, s) {
       final String errorMessage;
       if (e is BuildException) {
@@ -283,7 +287,10 @@ Run "udara_cli clean" to restore the project files again.
           errorMessage: errorMessage);
       rethrow;
     } finally {
-      if (!keep) {
+      if (keep && succeeded) {
+        // Keep the branding; its backups stay for the next run / `clean`.
+        await config.markKept(client);
+      } else {
         Logger.phase('Cleaning Up Project State');
         try {
           await cleanup.performFullCleanup();

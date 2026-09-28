@@ -106,6 +106,44 @@ flutter:
     });
   });
 
+  group('branding folder restore', () {
+    Directory branding(String client) =>
+        Directory(p.join(tmp.path, 'assets', 'branding', client));
+
+    test('a default branding folder the run created is removed again',
+        () async {
+      await writeFile('clients/default/logo_small.png', 'png');
+      await service.syncBrandingAssets('default', 'clients/default/');
+      expect(branding('default').existsSync(), isTrue);
+
+      await CleanupService(projectDir: tmp.path, config: config)
+          .performFullCleanup();
+      expect(Directory(p.join(tmp.path, 'assets', 'branding')).existsSync(),
+          isFalse);
+    });
+
+    test('an existing default branding folder comes back as it was', () async {
+      await writeFile('assets/branding/default/committed.png', 'committed');
+      await writeFile(
+          'assets/branding/default/${WhiteLabelService.managedMarkerFile}',
+          'managed=true');
+      await writeFile('clients/default/logo_small.png', 'png');
+
+      await service.syncBrandingAssets('default', 'clients/default/');
+      await service.syncBrandingAssets('acme', 'clients/acme/');
+      await CleanupService(projectDir: tmp.path, config: config)
+          .performFullCleanup();
+
+      expect(
+          File(p.join(branding('default').path, 'committed.png')).existsSync(),
+          isTrue);
+      expect(
+          File(p.join(branding('default').path, 'logo_small.png')).existsSync(),
+          isFalse);
+      expect(branding('acme').existsSync(), isFalse);
+    });
+  });
+
   group('applyClientFonts', () {
     test('returns false when the client has no fonts', () async {
       expect(await service.applyClientFonts('acme', 'clients/acme/'), isFalse);

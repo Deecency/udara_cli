@@ -104,7 +104,12 @@ class DoctorCommand extends UdaraCommand {
     }
 
     final leftoverBackups = Directory(p.join(projectDir, '.udara'));
-    if (leftoverBackups.existsSync()) {
+    final kept = ConfigService(projectDir).keptClient();
+    if (kept != null) {
+      _pass(
+          'The project is branded as "$kept" (whitelabel --keep / Run Client); '
+          'the next run or "udara_cli clean" restores it.');
+    } else if (leftoverBackups.existsSync()) {
       _warn(
         'Leftover ".udara" state from an interrupted build was found.',
         fix: 'Run "udara_cli clean" to restore the project.',

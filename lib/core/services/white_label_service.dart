@@ -14,7 +14,12 @@ class WhiteLabelService {
   // --------------------------------------------------------------------------
 
   /// Copies client-specific branding images into the active assets folder.
+  ///
+  /// `assets/branding` is snapshotted first, so cleanup puts it back exactly
+  /// as it was: a folder the run created (even the default client's) is
+  /// removed again, and one that existed is restored as it was.
   Future<void> syncBrandingAssets(String clientName, String sourcePath) async {
+    await config.snapshotDirectories(const [brandingDir]);
     await _ensureUdaraIgnoreFile();
 
     await _cleanupOtherClientBrandingFolders(clientName);
@@ -117,15 +122,23 @@ class WhiteLabelService {
     return null;
   }
 
-  /// Swaps system fonts for client fonts and updates pubspec configuration.
-  /// Returns true when fonts were changed and need restoring on cleanup.
+  /// Swaps the project fonts for the client's and updates the pubspec
+  /// `fonts:` section. Returns true when fonts were changed.
+  ///
+  /// The font folder is snapshotted first (and pubspec.yaml is backed up by
+  /// every caller), so cleanup — or, after `whitelabel --keep`, the next run
+  /// or `clean` — restores the original fonts and pubspec entry exactly.
+  /// Every run starts from that original state, so a client without fonts
+  /// never inherits the previous client's, and two clients' fonts never mix.
   Future<bool> applyClientFonts(
       String clientName, String clientAssetsPath) async {
     final clientFontsDir = findClientFontsDir(clientName, clientAssetsPath);
-    final targetFontsDir = Directory(p.join(projectDir, 'assets', 'fonts'));
+    final targetFontsDir =
+        Directory(p.join(projectDir, ConfigService.fontsDir));
 
     if (clientFontsDir == null) {
-      Logger.info('No custom fonts found for this client. Skipping.');
+      Logger.info(
+          'No custom fonts found for this client; keeping the project fonts.');
       return false;
     }
 
@@ -134,15 +147,15 @@ class WhiteLabelService {
         .whereType<File>()
         .any((f) => !p.basename(f.path).startsWith('.'));
     if (!hasFontFiles) {
-      Logger.info('Client fonts directory is empty. Skipping.');
+      Logger.info(
+          'Client fonts directory is empty; keeping the project fonts.');
       return false;
     }
 
-    final backupDir = Directory('${targetFontsDir.path}.bak');
-    if (targetFontsDir.existsSync() && !backupDir.existsSync()) {
-      await targetFontsDir.rename(backupDir.path);
+    await config.snapshotFonts();
+    if (targetFontsDir.existsSync()) {
+      await targetFontsDir.delete(recursive: true);
     }
-
     await targetFontsDir.create(recursive: true);
     await _copyDirectory(clientFontsDir, targetFontsDir);
 
@@ -294,6 +307,9 @@ class WhiteLabelService {
   /// Marker written into branding folders the CLI owns, so cleanup never
   /// deletes a folder a developer created by hand.
   static const managedMarkerFile = '.udara_managed';
+
+  /// Where the active client's branding assets are copied.
+  static const brandingDir = 'assets/branding';
 
   /// The client whose branding and env act as the fallback for plain
   /// `flutter run`; its branding folder is never removed by cleanup.
@@ -506,12 +522,15 @@ class CleanupService {
     }
   }
 
+  /// Before 1.5.0 the original fonts were parked in `assets/fonts.bak`;
+  /// put them back if a project still has that folder.
   Future<void> _restoreDefaultFonts() async {
-    final targetFontsDir = Directory(p.join(projectDir, 'assets', 'fonts'));
+    final targetFontsDir =
+        Directory(p.join(projectDir, ConfigService.fontsDir));
     final backupFontsDir = Directory('${targetFontsDir.path}.bak');
 
     if (backupFontsDir.existsSync()) {
-      Logger.info('Restoring default fonts...');
+      Logger.info('Restoring default fonts (from assets/fonts.bak)...');
       try {
         if (targetFontsDir.existsSync()) {
           await targetFontsDir.delete(recursive: true);

@@ -21,6 +21,14 @@
 - Cleanup restores every file a run backed up, instead of a fixed list.
 - `clean` regenerates the default client's config after `whitelabel --keep` in generated mode.
 
+* **FIXES**:
+
+- `whitelabel --keep` (the editors' Run Client) now backs up everything it changes (pubspec, launcher icon config, fonts, generated config, native branding) and leaves those backups in `.udara/` instead of restoring them. The next run restores the original project before applying its client, and `clean` restores it too. Previously, running a client without fonts after one with fonts kept the previous client's fonts and pubspec `fonts:` entry, two font clients in a row mixed their fonts, and `clean` restored the font folder but not the pubspec entry.
+- Client fonts replace `assets/fonts` from a snapshot instead of parking the originals in `assets/fonts.bak`, so a project that had no `assets/fonts` gets none back. A leftover `assets/fonts.bak` from older versions is still restored.
+- `clean` on a project branded by an older version (no backups) repairs the sections udara_cli manages (pubspec `fonts:`, the `assets/branding/` entry, the splash image and the launcher icon path) from the last commit.
+- `assets/branding` is snapshotted and restored exactly, so a branding folder a run created (including the default client's) no longer lingers after cleanup, and switching clients leaves no other client's folder behind.
+- `doctor` reports a project branded with `--keep` as such instead of as an interrupted run.
+
 ## 1.4.0
 
 * **NEW**:

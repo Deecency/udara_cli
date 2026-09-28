@@ -444,12 +444,12 @@ TextStyle(
 When you run the whitelabel or build command:
 
 1. The CLI checks if the client has a `fonts/` directory
-2. If custom fonts exist, it backs up the default fonts (if any)
-3. Copies the client's fonts to `assets/fonts/`
+2. If custom fonts exist, it snapshots `assets/fonts/` (in `.udara/`) and backs up `pubspec.yaml`
+3. Replaces the contents of `assets/fonts/` with the client's fonts
 4. If a `fonts.yaml` configuration exists in the client's fonts directory, it applies the font families to `pubspec.yaml`
 5. During runtime, your app reads the `FONT_FAMILY` environment variable and applies the appropriate font
 
-**Note**: If no custom fonts are provided for a client, the CLI skips the font replacement step and uses the default fonts.
+When the run ends (or, after `whitelabel --keep`, when the next run starts or you run `udara_cli clean`), the original fonts and the pubspec `fonts:` section come back exactly. Every run starts from the project's own fonts, so a client without fonts uses the default ones even right after a client with fonts, and two clients' fonts never mix.
 
 ### Example Environment Files
 
@@ -637,7 +637,9 @@ udara_cli whitelabel --client clientA --keep         # or --test --keep
 flutter run --dart-define=CLIENT_ENV=.env
 ```
 
-Run `udara_cli clean` to restore the staged files after a `--keep`. Native files rewritten by `whitelabel` stay as they are, so commit or revert them with git as you see fit.
+With `--keep`, everything the run changes (pubspec, launcher icon config, fonts, the generated config, native branding) is backed up in `.udara/` and left applied. The next `whitelabel` or `build` (including the editors' Run Client) first restores the original project from those backups, so switching clients never carries anything over from the previous one. `udara_cli clean` restores it too. `doctor` shows which client the project is currently branded as.
+
+Projects branded with `--keep` by udara_cli before 1.5.0 have no backups; for those, `clean` puts the pubspec `fonts:` section, the branding asset entry, the splash image and the launcher icon path back as they are in your last commit.
 
 ---
 
