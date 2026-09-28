@@ -25,7 +25,7 @@ when you run or build from the VS Code and Android Studio extensions.
 
 | Script | Hook | What it does |
 | --- | --- | --- |
-| [`firebase_configure.sh`](firebase_configure.sh) | `after_branding` | Firebase / FCM push notifications. If `clients/<client>/service_account.json` exists, runs `flutterfire configure` for that project with the client's bundle id already applied. Skips when `lib/firebase_options.dart` and `google-services.json` already match (set `UDARA_FIREBASE_FORCE=1` to force). Needs `jq`, the Firebase CLI and FlutterFire CLI. |
+| [`firebase_configure.sh`](firebase_configure.sh) | `after_branding` | Firebase / FCM push notifications. If `clients/<client>/service_account.json` exists, runs `flutterfire configure` for that project with the client's bundle id already applied. Skips when `lib/firebase_options.dart` and `google-services.json` already match (set `UDARA_FIREBASE_FORCE=1` to force); since `build` restores those files afterwards (1.5.0+), the skip mainly helps repeated `whitelabel` runs. Needs `jq`, the Firebase CLI and FlutterFire CLI. |
 | [`onesignal_configure.sh`](onesignal_configure.sh) | `after_branding` | OneSignal push notifications. Sets the iOS Notification Service Extension's bundle id to `<bundle id>.OneSignalNotificationServiceExtension` and the app group to `group.<bundle id>.onesignal` in both entitlements files. Warns if `ONESIGNAL_APP_ID` is missing from the client's env file. Set `ONESIGNAL_EXTENSION_NAME` if your extension target has another name. |
 
 Keep per-client secrets such as `service_account.json` inside

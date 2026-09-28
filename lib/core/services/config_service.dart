@@ -440,6 +440,76 @@ class ConfigService {
   }
 
   // --------------------------------------------------------------------------
+  // NATIVE BRANDING SNAPSHOTS (build restores everything it touched)
+  // --------------------------------------------------------------------------
+
+  /// Files the branding steps and common hooks rewrite or create.
+  static const nativeBrandingFiles = [
+    'android/app/build.gradle',
+    'android/app/build.gradle.kts',
+    'android/app/src/main/AndroidManifest.xml',
+    'ios/Runner/Info.plist',
+    'ios/Runner.xcodeproj/project.pbxproj',
+    'lib/firebase_options.dart',
+    'android/app/google-services.json',
+    'ios/Runner/GoogleService-Info.plist',
+    'firebase.json',
+  ];
+
+  /// Folders the icon and splash generators create, overwrite and delete
+  /// files in, so they are snapshotted whole.
+  static const nativeBrandingDirs = [
+    'android/app/src/main/res',
+    'ios/Runner/Assets.xcassets',
+    'ios/Runner/Base.lproj',
+  ];
+
+  Directory get _snapshotRoot => Directory(p.join(_udaraDir.path, 'snapshots'));
+  File get _snapshotIndex => File(p.join(_udaraDir.path, 'snapshots.index'));
+
+  /// Backs up (or records as new) every native branding file and snapshots
+  /// the branding folders, so [restoreNativeBranding] can undo the
+  /// bundle id, app name, icon, splash and hook changes of a build.
+  Future<void> snapshotNativeBranding() async {
+    for (final rel in nativeBrandingFiles) {
+      final file = File(p.join(projectDir, rel));
+      if (file.existsSync()) {
+        if (!hasBackup(file)) await createBackup(file);
+      } else {
+        await markCreated(file);
+      }
+    }
+    final index = <String>[];
+    for (final rel in nativeBrandingDirs) {
+      final dir = Directory(p.join(projectDir, rel));
+      if (!dir.existsSync()) continue;
+      await WorkspaceManager.sync(
+          dir, Directory(p.join(_snapshotRoot.path, rel)));
+      index.add(rel);
+    }
+    await _snapshotIndex.parent.create(recursive: true);
+    await _snapshotIndex.writeAsString(index.join('\n'));
+  }
+
+  /// Makes every snapshotted folder match its snapshot again: restores
+  /// overwritten and deleted files and removes files the build created.
+  Future<void> restoreNativeBranding() async {
+    if (!_snapshotIndex.existsSync()) return;
+    for (final rel
+        in _snapshotIndex.readAsLinesSync().where((l) => l.trim().isNotEmpty)) {
+      final snapshot = Directory(p.join(_snapshotRoot.path, rel));
+      if (!snapshot.existsSync()) continue;
+      Logger.info('Restoring $rel/...');
+      try {
+        await WorkspaceManager.sync(
+            snapshot, Directory(p.join(projectDir, rel)));
+      } catch (e) {
+        Logger.warning('Failed to restore $rel: $e');
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // PROJECT UTILS
   // --------------------------------------------------------------------------
 

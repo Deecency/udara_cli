@@ -577,9 +577,9 @@ restored afterwards, even when a build fails. Every build is recorded in
       await config.createBackup(File(p.join(projectDir, 'pubspec.yaml')));
       await config.createBackup(
           File(p.join(projectDir, 'flutter_launcher_icons.yaml')));
-      if (config.pbxprojFile.existsSync()) {
-        await config.createBackup(config.pbxprojFile);
-      }
+      // Bundle id, app name, icons, splash and hook outputs (e.g. Firebase
+      // config) are restored after the build, so it leaves nothing behind.
+      await config.snapshotNativeBranding();
     });
 
     if (appConfig.settings.isGenerated) {

@@ -451,6 +451,7 @@ class CleanupService {
     try {
       await _restoreBackedUpFiles();
       await config.removeCreatedFiles();
+      await config.restoreNativeBranding();
       await _removeTempFiles();
       await _restoreDefaultFonts();
 

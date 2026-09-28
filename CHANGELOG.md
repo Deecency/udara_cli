@@ -17,6 +17,7 @@
 
 * **OTHER**:
 
+- `build` now leaves the project exactly as it found it: besides its config files it snapshots and restores everything branding and hooks change (`applicationId`, `AndroidManifest.xml`, `Info.plist`, the Xcode project, Android `res/`, `Assets.xcassets`, `Base.lproj`, and Firebase outputs). Previously the client's bundle id, app name, icons and splash stayed in the project after a build. `whitelabel` still keeps branding applied. Hooks that skip work when their output already matches (like the example Firebase hook) now run on every build.
 - Cleanup restores every file a run backed up, instead of a fixed list.
 - `clean` regenerates the default client's config after `whitelabel --keep` in generated mode.
 

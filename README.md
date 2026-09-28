@@ -622,7 +622,7 @@ The CLI performs the following steps:
    - Creates splash screens
    - Fixes platform-specific issues
 4. **Final Build**: Builds the app and collects the artifact as `build/udara/<client>/<client>_v<version>.<apk|aab|ipa>`
-5. **Cleanup**: Restores the original project state (always runs, even on failure)
+5. **Cleanup**: Restores the original project state (always runs, even on failure): config files, the generated config, and everything the branding steps and hooks changed: `applicationId`, `AndroidManifest.xml`, `Info.plist`, the Xcode project, Android `res/`, `Assets.xcassets`, `Base.lproj`, and Firebase outputs (`firebase_options.dart`, `google-services.json`, `GoogleService-Info.plist`, `firebase.json`). A build leaves `git status` exactly as it found it; `whitelabel` is the command that keeps branding applied.
 6. **History**: Records the build (success or failure) to `.udara_build_history.json`
    (`after_branding` hooks run at the end of step 3, `after_build` hooks after step 4)
 7. **Notifications** (if enabled): Sends a build summary to Slack, and uploads the APK for APK builds
