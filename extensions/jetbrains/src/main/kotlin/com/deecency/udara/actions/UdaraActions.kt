@@ -109,7 +109,8 @@ object RunFlow {
             ActiveClient.set(project, client.name)
             val settings = UdaraSettings.getInstance().state
             val launch = { device: String? ->
-                val runArgs = mutableListOf("run", "--dart-define=CLIENT_ENV=.env")
+                val runArgs = mutableListOf("run")
+                runArgs += UdaraCli.envDefines(root)
                 if (device != null) runArgs += listOf("-d", device)
                 runArgs += ParametersListUtil.parse(settings.flutterRunArgs)
                 UdaraRunner.runFlutterInteractive(
@@ -296,7 +297,7 @@ class WhitelabelAction : UdaraActionBase(
                     ActiveClient.set(project, client.name)
                     UdaraNotifications.info(
                         project, "Project is now branded as \"${client.name}\"",
-                        "Run it with: flutter run --dart-define=CLIENT_ENV=.env",
+                        "Run it with: " + (listOf("flutter run") + UdaraCli.envDefines(root)).joinToString(" "),
                     )
                 } else {
                     UdaraNotifications.error(project, "Whitelabel failed", "Exit code $code. See the Run tool window.")

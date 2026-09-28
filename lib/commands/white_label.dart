@@ -156,11 +156,15 @@ Run "udara_cli clean" to restore the project files again.
                 envFile: envFile,
                 isTest: isTest,
                 trackForCleanup: !keep));
-        await runStep(
-            'Staging root .env for native builds (not shipped)',
-            () => config.stageNativeEnv(
-                envFile, resolveSecretsFile(client, isTest: isTest),
-                trackForCleanup: !keep));
+        // No root .env here: running the app doesn't need it, and with
+        // --keep it would linger. `udara_cli build` stages it for native
+        // release tooling (e.g. Gradle signing) and removes it afterwards.
+        final readers = appConfig.nativeEnvReaders();
+        if (readers.isNotEmpty) {
+          Logger.info(
+              '${readers.keys.join(', ')} reads the root .env; it is only staged during '
+              '"udara_cli build", so make release builds with that command.');
+        }
       } else {
         await runStep('Staging client environment as root .env',
             () => config.copyToRootEnv(envFile, trackForCleanup: !keep));

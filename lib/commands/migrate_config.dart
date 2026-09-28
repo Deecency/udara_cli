@@ -163,7 +163,9 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
         !AppConfigSettings.defaultExclude.contains(key) &&
         (include == null || include.contains(key));
     final leftOut = (allEnvKeys.where((k) => !ships(k)).toList()..sort());
-    final nativeReaders = _nativeEnvReaders();
+    final nativeReaders =
+        AppConfigService(projectDir, ConfigService(projectDir))
+            .nativeEnvReaders();
 
     final secrets = <String>[];
     for (final client in clients) {
@@ -329,8 +331,9 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
     for (final e in nativeReaders.entries) {
       Logger.info(
           '6. ${e.key} reads the root .env${e.value.isEmpty ? '' : ' (${e.value.join(', ')})'}: '
-          'builds keep staging it for native tools (never shipped), now with the client\'s .secrets added, '
-          'so those values can move to .secrets.');
+          '"udara_cli build" writes it for that file during the build (with the client\'s .secrets added, so '
+          'those values can move to .secrets) and removes it afterwards. It is never shipped, and '
+          'whitelabel / Run Client no longer create it.');
     }
     Logger.info('   Your clients/*/.env files are not modified.');
 
@@ -414,35 +417,6 @@ ${include == null ? '' : '  # Keys your code reads; only these are compiled into
     final editor = YamlEditor(file.readAsStringSync());
     editor.update(['app_config'], settings);
     file.writeAsStringSync(editor.toString());
-  }
-
-  /// Native build files that read the root `.env` (e.g. Gradle signing),
-  /// with the keys they read when that can be seen.
-  Map<String, List<String>> _nativeEnvReaders() {
-    final candidates = [
-      'android/app/build.gradle',
-      'android/app/build.gradle.kts',
-      'android/build.gradle',
-      'android/build.gradle.kts',
-      'android/settings.gradle',
-      'android/settings.gradle.kts',
-      'ios/Runner.xcodeproj/project.pbxproj',
-    ];
-    final readers = <String, List<String>>{};
-    for (final rel in candidates) {
-      final f = File(p.join(projectDir, rel));
-      if (!f.existsSync()) continue;
-      final src = f.readAsStringSync();
-      if (!RegExp(r'''['"/]\.env['"]''').hasMatch(src)) continue;
-      final keys = RegExp(r'''getProperty\(\s*['"]([A-Za-z0-9_]+)['"]''')
-          .allMatches(src)
-          .map((m) => m.group(1)!)
-          .toSet()
-          .toList()
-        ..sort();
-      readers[rel] = keys;
-    }
-    return readers;
   }
 
   /// Flags that change the plan, so the printed --apply command matches it.

@@ -99,6 +99,37 @@ final headers = {'accky': '${dotenv.env['ACCKY']}'};
       expect(File(p.join(tmp.path, '.env')).existsSync(), isFalse);
     });
 
+    test('detects native build files that read the root .env', () {
+      final service = AppConfigService(tmp.path, config);
+      expect(service.nativeEnvReaders(), isEmpty);
+      write(
+          'android/app/build.gradle',
+          "def envFile = new File(rootProject.projectDir.parentFile, '.env')\n"
+              "storePassword envProperties.getProperty('RELEASE_STORE_PASSWORD')\n");
+      expect(service.nativeEnvReaders(), {
+        'android/app/build.gradle': ['RELEASE_STORE_PASSWORD'],
+      });
+    });
+
+    test('recognises a root .env udara_cli wrote, and leaves a user one alone',
+        () async {
+      final service = AppConfigService(tmp.path, config);
+      await config.stageNativeEnv(
+          File(p.join(tmp.path, 'clients/acme/.env')), null,
+          trackForCleanup: false);
+      expect(File(p.join(tmp.path, '.env')).readAsStringSync(),
+          startsWith(ConfigService.stagedEnvHeader));
+      expect(service.isStagedRootEnv(), isTrue);
+
+      // A plain copy of a client's .env (what dotenv mode used to leave).
+      File(p.join(tmp.path, '.env')).writeAsStringSync(
+          File(p.join(tmp.path, 'clients/acme/.env')).readAsStringSync());
+      expect(service.isStagedRootEnv(), isTrue);
+
+      File(p.join(tmp.path, '.env')).writeAsStringSync('MY_OWN=1\n');
+      expect(service.isStagedRootEnv(), isFalse);
+    });
+
     test('an existing root .env is restored after staging', () async {
       write('.env', 'MINE=1\n');
       await config.stageNativeEnv(

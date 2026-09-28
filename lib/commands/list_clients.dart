@@ -71,6 +71,19 @@ class ListClientsCommand extends UdaraCommand {
     Logger.info('Build one with: udara_cli build --client <name>');
   }
 
+  Map<String, Object?> _appConfigJson() {
+    try {
+      final s = AppConfigSettings.load(projectDir);
+      return {
+        'mode': s.mode.name,
+        'output': s.output,
+        'className': s.className
+      };
+    } on BuildException catch (e) {
+      return {'mode': 'invalid', 'error': e.message};
+    }
+  }
+
   /// Emits one object per client with its env files and parsed variables.
   /// Values are printed as-is, so treat the output as sensitive.
   Future<void> _printJson(List<String> clients) async {
@@ -105,6 +118,9 @@ class ListClientsCommand extends UdaraCommand {
 
     stdout.writeln(const JsonEncoder.withIndent('  ').convert({
       'projectDir': projectDir,
+      // Lets editor integrations match the project's config mode (e.g. only
+      // pass --dart-define=CLIENT_ENV=.env in dotenv mode).
+      'appConfig': _appConfigJson(),
       'clients': result,
     }));
   }

@@ -84,7 +84,7 @@ export class ClientsTreeProvider implements vscode.TreeDataProvider<ClientNode> 
   private readonly emitter = new vscode.EventEmitter<ClientNode | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
 
-  private listing: ClientListing = { clients: [], source: 'fallback' };
+  private listing: ClientListing = { clients: [], appConfigMode: 'dotenv', source: 'fallback' };
   private loaded = false;
 
   constructor(private readonly getRoot: () => string | undefined) {}
@@ -142,7 +142,7 @@ export class ClientsTreeProvider implements vscode.TreeDataProvider<ClientNode> 
       return this.listing;
     }
     const root = this.getRoot();
-    this.listing = root ? await listClients(root) : { clients: [], source: 'fallback' };
+    this.listing = root ? await listClients(root) : { clients: [], appConfigMode: 'dotenv', source: 'fallback' };
     this.loaded = true;
     await vscode.commands.executeCommand(
       'setContext',

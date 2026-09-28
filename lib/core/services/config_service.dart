@@ -129,6 +129,11 @@ class ConfigService {
     }
   }
 
+  /// First line of a root `.env` staged for native builds; lets `clean`
+  /// recognise it as udara_cli's.
+  static const stagedEnvHeader =
+      '# Staged by udara_cli for native build tools during a build. Not part of the app; removed afterwards.';
+
   /// Generated app config: writes the root `.env` for native build tooling
   /// (e.g. Gradle reading signing passwords) as the client's `.env` plus its
   /// `.secrets`. It is never registered as an app asset, so nothing in it
@@ -144,7 +149,9 @@ class ConfigService {
           await markCreated(target);
         }
       }
-      final buffer = StringBuffer(await envFile.readAsString());
+      final buffer = StringBuffer()
+        ..writeln(stagedEnvHeader)
+        ..write(await envFile.readAsString());
       if (secretsFile != null) {
         buffer
           ..writeln()

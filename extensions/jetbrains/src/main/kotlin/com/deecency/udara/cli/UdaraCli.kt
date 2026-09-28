@@ -48,6 +48,27 @@ object UdaraCli {
         }
     }
 
+    /**
+     * `app_config.mode` from udara.yaml: "generated" when client config is
+     * compiled into a Dart class, otherwise "dotenv" (the default).
+     */
+    fun appConfigMode(root: File): String {
+        val file = File(root, "udara.yaml")
+        if (!file.isFile) return "dotenv"
+        val lines = file.readLines()
+        val start = lines.indexOfFirst { Regex("^app_config:\\s*(#.*)?$").matches(it) }
+        if (start < 0) return "dotenv"
+        for (line in lines.drop(start + 1)) {
+            if (line.isNotEmpty() && !line[0].isWhitespace() && !line.startsWith("#")) break
+            Regex("^\\s+mode:\\s*[\"']?(\\w+)").find(line)?.let { return it.groupValues[1] }
+        }
+        return "dotenv"
+    }
+
+    /** Only projects that bundle .env tell the app which file to load. */
+    fun envDefines(root: File): List<String> =
+        if (appConfigMode(root) == "generated") emptyList() else listOf("--dart-define=CLIENT_ENV=.env")
+
     /** The oldest udara_cli with every option this plugin passes. */
     const val MIN_CLI_VERSION = "1.4.0"
 

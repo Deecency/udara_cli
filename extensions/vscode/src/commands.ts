@@ -190,6 +190,10 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
   setActiveClient(ctx, client.name);
 
   const { flutterPath, flutterRunArgs, askForDevice, launchMode } = getConfig();
+  // Only projects that still bundle .env need to tell the app which file to
+  // load; generated config is compiled in.
+  const listing = await ctx.clients.ensureLoaded();
+  const envDefine = listing.appConfigMode === 'generated' ? [] : ['--dart-define=CLIENT_ENV=.env'];
   const sessionName = `Udara: ${client.name}${isTest ? ' (test)' : ''}`;
 
   if (launchMode === 'native' && isDartExtensionInstalled()) {
@@ -205,7 +209,7 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
       name: sessionName,
       cwd: root,
       program: path.join(root, 'lib', 'main.dart'),
-      toolArgs: ['--dart-define=CLIENT_ENV=.env', ...flutterRunArgs],
+      toolArgs: [...envDefine, ...flutterRunArgs],
     });
     if (!started) {
       vscode.window.showErrorMessage(
@@ -224,7 +228,7 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
   const device = askForDevice ? await pickDevice(root) : undefined;
   const runArgs = [
     'run',
-    '--dart-define=CLIENT_ENV=.env',
+    ...envDefine,
     ...(device ? ['-d', device] : []),
     ...flutterRunArgs,
   ];
@@ -263,7 +267,9 @@ async function whitelabelClient(ctx: CommandContext, node: ClientItem | undefine
   if (code === 0) {
     setActiveClient(ctx, client.name);
     vscode.window.showInformationMessage(
-      `Project is now branded as "${client.name}". Run it with: flutter run --dart-define=CLIENT_ENV=.env`,
+      `Project is now branded as "${client.name}". Run it with: flutter run${
+        (await ctx.clients.ensureLoaded()).appConfigMode === 'generated' ? '' : ' --dart-define=CLIENT_ENV=.env'
+      }`,
     );
   } else {
     vscode.window.showErrorMessage(`Whitelabel failed (exit code ${code ?? '?'}). See the terminal.`);

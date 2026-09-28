@@ -44,6 +44,13 @@ builds use. They are recreated (and re-cached) on the next parallel build.''';
     // After `whitelabel --keep`, the generated config still holds that
     // client's values; put the default client's back.
     final appConfig = AppConfigService(projectDir, config);
+    // A root .env left by an earlier run (e.g. before this project moved to
+    // generated config) is only udara_cli's staging: remove it.
+    if (appConfig.settings.isGenerated && appConfig.isStagedRootEnv()) {
+      await File('$projectDir/.env').delete();
+      Logger.info(
+          'Removed the root .env udara_cli had staged (not needed in generated mode).');
+    }
     final defaultEnv =
         File('${clientsDir.path}/${WhiteLabelService.defaultClientName}/.env');
     if (appConfig.settings.isGenerated && defaultEnv.existsSync()) {

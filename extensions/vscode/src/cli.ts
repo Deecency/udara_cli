@@ -102,6 +102,8 @@ function execFile(
 
 export interface ClientListing {
   clients: ClientInfo[];
+  /** 'generated' (compiled-in config) or 'dotenv' (bundled .env). */
+  appConfigMode: string;
   /** `cli` when udara_cli answered, `fallback` when the folder was scanned. */
   source: 'cli' | 'fallback';
   cliError?: string;
@@ -112,15 +114,46 @@ export async function listClients(root: string): Promise<ClientListing> {
   const { cliPath } = getConfig();
   try {
     const out = await execFile(cliPath, ['list-clients', '--json'], root);
-    const parsed = JSON.parse(out) as { clients: ClientInfo[] };
-    return { clients: parsed.clients ?? [], source: 'cli' };
+    const parsed = JSON.parse(out) as { clients: ClientInfo[]; appConfig?: { mode?: string } };
+    return {
+      clients: parsed.clients ?? [],
+      appConfigMode: parsed.appConfig?.mode ?? readAppConfigMode(root),
+      source: 'cli',
+    };
   } catch (e) {
     return {
       clients: scanClients(root),
+      appConfigMode: readAppConfigMode(root),
       source: 'fallback',
       cliError: e instanceof Error ? e.message : String(e),
     };
   }
+}
+
+/**
+ * The `app_config.mode` in udara.yaml: 'generated' when client config is
+ * compiled into a Dart class, otherwise 'dotenv' (the default).
+ */
+export function readAppConfigMode(root: string): string {
+  try {
+    const lines = fs.readFileSync(path.join(root, 'udara.yaml'), 'utf8').split(/\r?\n/);
+    const start = lines.findIndex((l) => /^app_config:\s*(#.*)?$/.test(l));
+    if (start < 0) {
+      return 'dotenv';
+    }
+    for (const line of lines.slice(start + 1)) {
+      if (/^\S/.test(line) && !line.startsWith('#')) {
+        break; // next top-level key
+      }
+      const m = /^\s+mode:\s*["']?(\w+)/.exec(line);
+      if (m) {
+        return m[1];
+      }
+    }
+  } catch {
+    // no udara.yaml
+  }
+  return 'dotenv';
 }
 
 /** Reads `.udara_build_history.json`; newest first, empty when absent. */

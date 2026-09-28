@@ -34,6 +34,45 @@ class AppConfigService {
     return files;
   }
 
+  /// Native build files that read the root `.env` (e.g. a Gradle signing
+  /// config), with the keys they read when that can be seen. When there are
+  /// none, generated mode never writes a root `.env` at all.
+  Map<String, List<String>> nativeEnvReaders() {
+    const candidates = [
+      'android/app/build.gradle',
+      'android/app/build.gradle.kts',
+      'android/build.gradle',
+      'android/build.gradle.kts',
+      'android/settings.gradle',
+      'android/settings.gradle.kts',
+      'ios/Runner.xcodeproj/project.pbxproj',
+    ];
+    final readers = <String, List<String>>{};
+    for (final rel in candidates) {
+      final f = File(p.join(projectDir, rel));
+      if (!f.existsSync()) continue;
+      final src = f.readAsStringSync();
+      if (!RegExp(r'''['"/]\.env['"]''').hasMatch(src)) continue;
+      readers[rel] = RegExp(r'''getProperty\(\s*['"]([A-Za-z0-9_]+)['"]''')
+          .allMatches(src)
+          .map((m) => m.group(1)!)
+          .toSet()
+          .toList()
+        ..sort();
+    }
+    return readers;
+  }
+
+  /// Whether the root `.env` was written by udara_cli (the staged native
+  /// file, or a copy of a client's `.env`), so `clean` may delete it.
+  bool isStagedRootEnv() {
+    final root = File(p.join(projectDir, '.env'));
+    if (!root.existsSync()) return false;
+    final content = root.readAsStringSync();
+    if (content.startsWith(ConfigService.stagedEnvHeader)) return true;
+    return allEnvFiles().any((f) => f.readAsStringSync() == content);
+  }
+
   /// Keys compiled into the app for [values]: everything except excluded ones.
   Map<String, String> appValues(Map<String, String> values) => {
         for (final e in values.entries)

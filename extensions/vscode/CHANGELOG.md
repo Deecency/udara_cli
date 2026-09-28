@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Projects using udara_cli's generated app config (1.5.0+): Run Client no
+  longer passes `--dart-define=CLIENT_ENV=.env`, since the config is compiled
+  in. Projects that still bundle `.env` keep the flag.
+
 ## 0.2.0
 
 Requires udara_cli 1.4.0 or newer (the extension tells you if it's older).

@@ -214,11 +214,13 @@ UdaraConfig.env['API_BASE_URL'];                               // same map as do
   out even if it is in `.env`. `migrate-config` writes this list for you from
   the keys your code reads, and `doctor` warns when code reads a key that
   isn't on it (it would be null at runtime).
-- The root `.env` is still written during builds for **native tooling**
-  (e.g. a Gradle signing config that reads `RELEASE_STORE_PASSWORD` from
-  it), now with the client's `.secrets` appended, but it is never registered
-  as an app asset, so nothing in it ships. Existing Gradle/Xcode scripts keep
-  working unchanged.
+- **No root `.env` by default.** It is only written when a native build file
+  reads it (e.g. a Gradle signing config reading `RELEASE_STORE_PASSWORD`),
+  and only during `udara_cli build`: the client's `.env` plus its `.secrets`,
+  with a header marking it as udara_cli's, never registered as an app asset,
+  and removed when the build ends. `whitelabel` / the editors' Run Client
+  never write it, so make release builds with `udara_cli build`.
+  `udara_cli clean` removes a root `.env` left over from dotenv mode.
 
 - The `CLIENT_ENV` dart-define is no longer needed; `flutter run` just works.
 
