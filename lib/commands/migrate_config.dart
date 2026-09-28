@@ -199,7 +199,10 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
       Logger.phase('Dry Run');
       Logger.info(
           'Nothing was changed. Review the plan, commit your work, then run:');
-      Logger.info('  udara_cli migrate-config --apply');
+      Logger.info('  udara_cli migrate-config ${[
+        ..._planFlags(),
+        '--apply',
+      ].join(' ')}');
       return;
     }
 
@@ -247,7 +250,8 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
           'pubspec.yaml: removed ${envAssets.join(', ')} from assets');
     }
 
-    await config.ensureGitignoreEntries(const ['clients/*/.secrets*']);
+    await config.ensureGitignoreEntries(
+        const ['clients/*/.secrets*', 'clients/*/*.secrets']);
 
     final stillUsesDotenv = _dartFiles(output).any((f) {
       final src = f.readAsStringSync();
@@ -441,6 +445,19 @@ ${include == null ? '' : '  # Keys your code reads; only these are compiled into
     return readers;
   }
 
+  /// Flags that change the plan, so the printed --apply command matches it.
+  List<String> _planFlags() => [
+        if (argResults!['include-detected'] as bool) '--include-detected',
+        if (argResults!.wasParsed('output')) ...[
+          '--output',
+          argResults!['output'] as String
+        ],
+        if (argResults!.wasParsed('class-name')) ...[
+          '--class-name',
+          argResults!['class-name'] as String
+        ],
+      ];
+
   void _requireCleanGit() {
     final ProcessResult result;
     try {
@@ -450,7 +467,20 @@ ${include == null ? '' : '  # Keys your code reads; only these are compiled into
       return; // git not installed: nothing to check against
     }
     if (result.exitCode != 0) return; // not a git repository
-    final dirty = '${result.stdout}'.trim();
+    // "git checkout ." restores tracked files, so untracked files only matter
+    // when the migration writes them (e.g. an uncommitted udara.yaml).
+    final written = {
+      'udara.yaml',
+      'pubspec.yaml',
+      '.gitignore',
+      argResults!['output'] as String
+    };
+    final dirty = '${result.stdout}'
+        .split('\n')
+        .where((l) => l.trim().isNotEmpty)
+        .where((l) =>
+            !l.startsWith('??') || written.contains(l.substring(3).trim()))
+        .join('\n');
     if (dirty.isEmpty) return;
     throw BuildException(
       'You have uncommitted changes:\n$dirty',

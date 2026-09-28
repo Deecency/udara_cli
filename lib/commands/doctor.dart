@@ -637,6 +637,24 @@ class DoctorCommand extends UdaraCommand {
         }
       }
     }
+    // Secret-looking files udara_cli won't use (e.g. "acme.secrets"): they
+    // are easy to commit by accident because the ignore rule misses them.
+    for (final client in clients) {
+      final dir = Directory(p.join(clientsDir.path, client));
+      if (!dir.existsSync()) continue;
+      for (final f in dir.listSync().whereType<File>()) {
+        final name = p.basename(f.path);
+        if (name == '.secrets' || name == '.secrets_test') continue;
+        if (!name.toLowerCase().contains('secret')) continue;
+        final ignored = Process.runSync('git', ['check-ignore', '-q', f.path],
+            workingDirectory: projectDir);
+        _warn(
+            'clients/$client/$name looks like a secrets file but udara_cli only reads .secrets / .secrets_test'
+            '${ignored.exitCode == 0 ? '' : ', and git does not ignore it'}.',
+            fix: 'Rename it to clients/$client/.secrets (or delete it).');
+      }
+    }
+
     if (flagged == 0)
       _pass('No secret-looking values in the config that ships with the app.');
     if (secretFiles > 0)

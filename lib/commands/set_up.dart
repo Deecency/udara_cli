@@ -295,6 +295,7 @@ class SetupCommand extends UdaraCommand {
         ConfigService.historyFileName,
         '/.env',
         'clients/*/.secrets*',
+        'clients/*/*.secrets',
       ]);
 
   void _writeGeneratedModeSettings() {
