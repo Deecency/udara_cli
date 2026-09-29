@@ -52,7 +52,7 @@ builds succeeded and opens `build/udara/` or the per-job logs.
 percent, ETA and what each running job is doing. Cancel it from the
 notification to stop the build and every process it started.
 
-Requires udara_cli 1.4.0 or newer; the extension tells you if yours is older.
+Requires udara_cli 1.3.1 or newer; the extension tells you if yours is older.
 
 **Build History view** lists every recorded build from
 `.udara_build_history.json` with pass/fail icons, duration, and a tooltip with

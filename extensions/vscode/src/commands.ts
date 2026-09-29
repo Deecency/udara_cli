@@ -41,6 +41,7 @@ export function registerCommands(ctx: CommandContext): vscode.Disposable[] {
     reg('udara.whitelabel', (node?: ClientItem) => whitelabelClient(ctx, node)),
     reg('udara.doctor', (node?: ClientItem) => doctor(ctx, node)),
     reg('udara.clean', () => clean(ctx)),
+    reg('udara.generateConfig', () => generateConfig(ctx)),
     reg('udara.diff', () => diffClients(ctx)),
     reg('udara.setupClients', () => setupClients(ctx)),
     reg('udara.openEnv', (node: EnvEntryItem | EnvFileItem) => openEnv(node)),
@@ -67,7 +68,7 @@ async function requireRoot(ctx: CommandContext): Promise<string | undefined> {
 }
 
 /** The oldest udara_cli with every option this extension passes. */
-const MIN_CLI_VERSION = '1.4.0';
+const MIN_CLI_VERSION = '1.3.1';
 
 async function ensureCli(ctx: CommandContext): Promise<boolean> {
   const listing = await ctx.clients.ensureLoaded();
@@ -610,6 +611,20 @@ async function clean(ctx: CommandContext) {
   if (code === 0) {
     setActiveClient(ctx, undefined);
     vscode.window.showInformationMessage('Udara: project restored and cleaned.');
+  }
+}
+
+/** Refreshes the committed app config class after .env keys change. */
+async function generateConfig(ctx: CommandContext) {
+  const root = await requireRoot(ctx);
+  if (!root || !(await ensureCli(ctx))) {
+    return;
+  }
+  const code = await runCliTask('generate-config', ['generate-config'], root);
+  ctx.clients.refresh();
+  if (code === 0) {
+    setActiveClient(ctx, undefined);
+    vscode.window.showInformationMessage('Udara: app config regenerated for the default client. Commit it.');
   }
 }
 

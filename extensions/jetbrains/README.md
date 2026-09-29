@@ -48,7 +48,7 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
 - **Progress:** builds open the Udara tool window with a progress bar showing
   percent, ETA and each running job's step. Stop the build from the Run tool
   window to cancel every job.
-- Requires udara_cli 1.4.0 or newer; the plugin tells you if yours is older.
+- Requires udara_cli 1.3.1 or newer; the plugin tells you if yours is older.
 - **History tab**: every recorded build from `.udara_build_history.json`.
   Double-click a row to reveal the artifact or see the error.
 

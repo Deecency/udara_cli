@@ -174,6 +174,7 @@ class SetupCommand extends UdaraCommand {
         Logger.success(
             'Generated ${appConfig.settings.output} for the default client (commit it).');
       }
+      await appConfig.ensureOutputTracked();
     } else {
       // Update pubspec with the default .env entry
       await config.addInitialAssetEntries();

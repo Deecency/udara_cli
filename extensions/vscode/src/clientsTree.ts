@@ -149,6 +149,11 @@ export class ClientsTreeProvider implements vscode.TreeDataProvider<ClientNode> 
       'udara.hasClients',
       this.listing.clients.length > 0,
     );
+    await vscode.commands.executeCommand(
+      'setContext',
+      'udara.generatedConfig',
+      this.listing.appConfigMode === 'generated',
+    );
     return this.listing;
   }
 }

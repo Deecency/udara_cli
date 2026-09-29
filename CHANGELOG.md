@@ -1,11 +1,18 @@
-## 1.5.0
+## 1.3.1
+
+Everything below is opt-in or backwards compatible: existing projects keep their current behaviour until they run `udara_cli migrate-config`.
+
+* **NEW**:
+
+- `udara_cli generate-config` regenerates the generated config class (`lib/udara_config.g.dart`) from the client `.env` files, e.g. after adding a key, without branding or cleaning anything. It reports keys that `app_config.include` leaves out. The IDE extensions (0.3.0) add a Regenerate App Config action for it.
+- A `**/*.g.dart` rule in `.gitignore` (common for build_runner output) kept the generated config out of git, so fresh clones didn't compile. `generate-config`, `migrate-config --apply` and `setup` now add `!lib/udara_config.g.dart` to `.gitignore` when needed, and `doctor` fails when the file is ignored.
 
 * **SECURITY**:
 
 - New **generated app config** (`app_config: mode: generated` in `udara.yaml`): instead of bundling the client's `.env` as a Flutter asset (readable by anyone who unzips the APK/IPA, together with the default client's `.env`), each build generates `lib/udara_config.g.dart` with the client's values as typed constants and restores it afterwards. No config file ships, build-only keys (`DEVELOPMENT_TEAM`, `ASSETS_PATH`, configurable) are left out, and no other client's values are included. The class mirrors flutter_dotenv's API (`env`, `get`, `maybeGet`, `getInt`, `getDouble`, `getBool`, `isEveryDefined`, `isInitialized`) and has the same fields for every client and environment.
 - **Allow-list** (`app_config.include`): only the listed keys are compiled in. `migrate-config` fills it with the keys the code reads (literal reads, plus keys detected from string literals when code reads keys by computed name, opt-in with `--include-detected`); `doctor` warns when code reads a key that isn't listed.
 - **Native builds keep their root `.env`, only when needed**: in generated mode, `build` writes a root `.env` (the client's `.env` plus its `.secrets`, marked with a header) only when a native build file reads it (e.g. Gradle release signing), never as an app asset, and removes it after the build. `whitelabel` never writes it; `clean` removes a leftover one. `migrate-config` reports native build files that read it.
-- `list-clients --json` reports the project's `appConfig` mode, so the IDE extensions (0.3.0) only pass `--dart-define=CLIENT_ENV=.env` in dotenv mode.
+- `list-clients --json` reports the project's `appConfig` mode, so the IDE extensions only pass `--dart-define=CLIENT_ENV=.env` in dotenv mode.
 - **`.secrets` files**: `clients/<client>/.secrets` (and `.secrets_test`) hold build-time secrets that are never compiled in, bundled, copied into branding assets or listed; hooks get their path as `UDARA_SECRETS_FILE`. `setup` git-ignores them.
 - `doctor` warns about secret-looking values that would ship with the app (in either mode), fails when a `.secrets` file isn't git-ignored, and in generated mode checks the generated file, that no `.env` is still an asset and that no `dotenv.load()` is left.
 
@@ -30,9 +37,7 @@
 - `build` checks each Android artifact's signing certificate. Gradle signs a release build with the debug key when it finds no release keystore (for example a misnamed `key.properties` entry), and the build still succeeds; Google Play then rejects the upload. A debug-signed AAB now fails the build and is kept as `*.debug-signed.aab` so it can't be uploaded by mistake, before any `after_build` hook runs. A debug-signed APK only warns, since those are common for QA.
 - `doctor` reports a project branded with `--keep` as such instead of as an interrupted run.
 
-## 1.4.0
-
-* **NEW**:
+* **BATCH & PARALLEL BUILDS**:
 
 - Batch builds: `--client`, `--platform` and `--type` accept several values (comma-separated or repeated), and `--all-clients` builds every client.
 - Parallel builds: batches are split into jobs of one client on one platform and run `--parallel N` at a time (`auto` by default: 1-4 based on RAM and CPU). Each parallel job runs in its own synced copy of the project under `~/.udara_cli/workspaces/`, so builds never touch each other's files or your working copy; the copies keep their build, Gradle and CocoaPods caches. `udara_cli clean --workspaces` deletes them.
@@ -41,9 +46,9 @@
 - Per-job logs in `build/udara/logs/`; the summary shows the lines around each failure.
 - Cancel with Ctrl+C or a termination/hang-up signal (IDE stop buttons): every worker and every Flutter/Gradle/Xcode process it started is stopped, finished artifacts are kept, and a single build restores the project immediately. Exit code 130.
 - `--fail-fast` stops the whole batch at the first failure.
-- The IDE extensions (VS Code 0.2.0, Android Studio plugin 0.2.0) add Build Multiple Clients… with per-client versions, parallelism and progress bars on top of this.
+- The IDE extensions (0.3.0) add Build Multiple Clients… with per-client versions, parallelism and progress bars on top of this.
 
-* **CHANGES**:
+* **BUILD OUTPUT**:
 
 - Artifacts are collected in `build/udara/<client>/<client>_v<version>.<type>` instead of being renamed inside Flutter's output folders, so a later build can't overwrite or clean them up.
 - In `after_branding` hooks of a multi-target job, `UDARA_PLATFORM` and `UDARA_BUILD_TYPE` list all targets; `after_build` hooks get the single target.

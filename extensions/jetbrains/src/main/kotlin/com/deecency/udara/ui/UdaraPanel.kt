@@ -3,6 +3,7 @@ package com.deecency.udara.ui
 import com.deecency.udara.actions.BuildClientAction
 import com.deecency.udara.actions.BuildMultipleAction
 import com.deecency.udara.actions.CleanAction
+import com.deecency.udara.actions.RegenerateConfigAction
 import com.deecency.udara.actions.DebugClientAction
 import com.deecency.udara.actions.DiffAction
 import com.deecency.udara.actions.DoctorAction
@@ -297,6 +298,7 @@ class UdaraPanel(private val project: Project, parentDisposable: Disposable) :
         group.addSeparator()
         group.add(DoctorAction())
         group.add(CleanAction())
+        group.add(RegenerateConfigAction())
         group.add(DiffAction())
         group.add(SetupClientsAction())
         group.addSeparator()

@@ -116,6 +116,13 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "udara.generateConfig",
+        "title": "Regenerate App Config",
+        "category": "Udara",
+        "icon": "$(sync)",
+        "enablement": "udara.generatedConfig"
+      },
+      {
         "command": "udara.diff",
         "title": "Diff Two Clients\u2026",
         "category": "Udara",
@@ -212,6 +219,11 @@
           "command": "udara.clean",
           "when": "view == udara.clients",
           "group": "1_actions@2"
+        },
+        {
+          "command": "udara.generateConfig",
+          "when": "view == udara.clients && udara.generatedConfig",
+          "group": "1_actions@3"
         },
         {
           "command": "udara.refresh",

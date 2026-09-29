@@ -70,7 +70,7 @@ object UdaraCli {
         if (appConfigMode(root) == "generated") emptyList() else listOf("--dart-define=CLIENT_ENV=.env")
 
     /** The oldest udara_cli with every option this plugin passes. */
-    const val MIN_CLI_VERSION = "1.4.0"
+    const val MIN_CLI_VERSION = "1.3.1"
 
     @Volatile
     private var cachedVersion: Pair<String, String?>? = null

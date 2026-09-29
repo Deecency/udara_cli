@@ -522,7 +522,7 @@ class CleanupService {
     }
   }
 
-  /// Before 1.5.0 the original fonts were parked in `assets/fonts.bak`;
+  /// Before 1.3.1 the original fonts were parked in `assets/fonts.bak`;
   /// put them back if a project still has that folder.
   Future<void> _restoreDefaultFonts() async {
     final targetFontsDir =

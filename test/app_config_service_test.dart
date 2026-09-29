@@ -144,4 +144,39 @@ void main() {
     expect(copied, contains('logo.png'));
     expect(copied, isNot(contains('.secrets')));
   });
+
+  test('a **/*.g.dart ignore rule is overridden for the generated file',
+      () async {
+    if (Process.runSync('git', ['init', '-q'], workingDirectory: tmp.path)
+            .exitCode !=
+        0) {
+      markTestSkipped('git not available');
+      return;
+    }
+    write('.gitignore', 'build/\n**/*.g.dart\n');
+    final service = AppConfigService(tmp.path, config);
+    expect(service.isOutputGitIgnored(), isTrue);
+
+    expect(await service.ensureOutputTracked(), isTrue);
+    expect(service.isOutputGitIgnored(), isFalse);
+    expect(File(p.join(tmp.path, '.gitignore')).readAsStringSync(),
+        contains('!lib/udara_config.g.dart'));
+    // Other generated files stay ignored.
+    expect(
+        Process.runSync('git', ['check-ignore', '-q', 'lib/models.g.dart'],
+                workingDirectory: tmp.path)
+            .exitCode,
+        0);
+  });
+
+  test('keysMissingFromInclude lists keys the include list leaves out', () {
+    expect(AppConfigService(tmp.path, config).keysMissingFromInclude(), isEmpty,
+        reason: 'no include list: every key ships');
+
+    write('udara.yaml',
+        'app_config:\n  mode: generated\n  include: [APP_NAME_PROD, PRIMARY_COLOR]\n');
+    expect(AppConfigService(tmp.path, config).keysMissingFromInclude(),
+        ['BUNDLE_ID', 'EXTRA'],
+        reason: 'excluded build-only keys and .secrets are not reported');
+  });
 }

@@ -85,6 +85,7 @@ Future<void> main(List<String> arguments) async {
     ..addCommand(HistoryCommand())
     ..addCommand(DiffCommand())
     ..addCommand(MigrateConfigCommand())
+    ..addCommand(GenerateConfigCommand())
     ..addCommand(SlackTestCommand());
 
   try {

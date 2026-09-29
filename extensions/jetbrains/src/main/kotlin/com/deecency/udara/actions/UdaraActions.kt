@@ -335,6 +335,28 @@ class CleanAction : UdaraActionBase(
     }
 }
 
+/** Refreshes the committed app config class after .env keys change. */
+class RegenerateConfigAction : UdaraActionBase(
+    "Regenerate App Config",
+    "Regenerate the generated app config class from the client .env files (after adding or removing keys)",
+    AllIcons.Actions.Refresh,
+) {
+    override fun update(e: AnActionEvent) {
+        val root = e.project?.let { UdaraCli.projectRoot(it) }
+        e.presentation.isEnabledAndVisible = root != null && UdaraCli.appConfigMode(root) == "generated"
+    }
+
+    override fun actionPerformed(e: AnActionEvent) = withRoot(e) { project, root ->
+        UdaraRunner.runCli(project, root, "udara generate-config", listOf("generate-config")) { code ->
+            if (code == 0) {
+                ActiveClient.set(project, null)
+                UdaraNotifications.info(project, "App config regenerated for the default client. Commit it.")
+            }
+            refreshPanel(project)
+        }
+    }
+}
+
 class DiffAction : UdaraActionBase(
     "Diff Two Clients…", "Compare env configuration between two clients", AllIcons.Actions.Diff,
 ) {

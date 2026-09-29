@@ -6,6 +6,7 @@ export 'commands/diff.dart';
 export 'commands/history.dart';
 export 'commands/list_clients.dart';
 export 'commands/migrate_config.dart';
+export 'commands/generate_config.dart';
 export 'commands/set_up.dart';
 export 'commands/slack_test.dart';
 export 'commands/white_label.dart';

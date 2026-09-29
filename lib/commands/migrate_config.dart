@@ -254,6 +254,9 @@ touched. Commit first: --apply refuses to run on a dirty git tree so that
 
     await config.ensureGitignoreEntries(
         const ['clients/*/.secrets*', 'clients/*/*.secrets']);
+    // A `**/*.g.dart` rule for build_runner output would keep the class
+    // out of git.
+    await appConfig.ensureOutputTracked();
 
     final stillUsesDotenv = _dartFiles(output).any((f) {
       final src = f.readAsStringSync();

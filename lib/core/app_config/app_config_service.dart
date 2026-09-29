@@ -73,6 +73,44 @@ class AppConfigService {
     return allEnvFiles().any((f) => f.readAsStringSync() == content);
   }
 
+  /// Whether git ignores the generated file, typically through a
+  /// `**/*.g.dart` rule meant for build_runner output. Then the class is
+  /// never committed and fresh clones don't compile. False outside git.
+  bool isOutputGitIgnored() {
+    try {
+      final r = Process.runSync('git', ['check-ignore', '-q', settings.output],
+          workingDirectory: projectDir);
+      return r.exitCode == 0;
+    } catch (_) {
+      return false; // git not installed
+    }
+  }
+
+  /// When git ignores the generated file, appends `!<output>` to
+  /// `.gitignore` so it gets committed. Returns false when it is still
+  /// ignored afterwards (e.g. a rule in a nested .gitignore).
+  Future<bool> ensureOutputTracked() async {
+    if (!isOutputGitIgnored()) return true;
+    await config.ensureGitignoreEntries(['!${settings.output}']);
+    return !isOutputGitIgnored();
+  }
+
+  /// Keys some client's `.env` / `.env_test` defines that don't reach the
+  /// app only because `app_config.include` doesn't list them (build-only
+  /// `exclude` keys aren't reported). Empty without an include list.
+  List<String> keysMissingFromInclude() {
+    final include = settings.include;
+    if (include == null) return const [];
+    final keys = <String>{
+      for (final f in allEnvFiles())
+        ...ConfigService.parseEnvContent(f.readAsStringSync()).keys,
+    };
+    return keys
+        .where((k) => !settings.exclude.contains(k) && !include.contains(k))
+        .toList()
+      ..sort();
+  }
+
   /// Keys compiled into the app for [values]: everything except excluded ones.
   Map<String, String> appValues(Map<String, String> values) => {
         for (final e in values.entries)

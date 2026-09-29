@@ -1,1 +1,1 @@
-const String udaraCliVersion = '1.5.0';
+const String udaraCliVersion = '1.3.1';

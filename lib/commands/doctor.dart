@@ -513,8 +513,14 @@ class DoctorCommand extends UdaraCommand {
       } else {
         _fail(
             '${settings.output} is missing, so the app does not compile until a build creates it.',
+            fix: 'Run "udara_cli generate-config", then commit it.');
+      }
+      if (AppConfigService(projectDir, ConfigService(projectDir))
+          .isOutputGitIgnored()) {
+        _fail(
+            '${settings.output} is git-ignored (e.g. by a **/*.g.dart rule), so it is never committed and fresh clones don\'t compile.',
             fix:
-                'Run "udara_cli clean" or any build to generate it, then commit it.');
+                'Run "udara_cli generate-config" (adds !${settings.output} to .gitignore), then commit it.');
       }
 
       final envAssets = assets.where((a) {

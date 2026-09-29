@@ -54,7 +54,7 @@ builds use. They are recreated (and re-cached) on the next parallel build.''';
     }
     await cleanup.performFullCleanup();
 
-    // Projects branded with --keep before udara_cli 1.5.0 have no backups
+    // Projects branded with --keep before udara_cli 1.3.1 have no backups
     // to restore from; repair the sections udara_cli manages from the last
     // commit instead.
     if (!hadBackups) _repairManagedSectionsFromLastCommit();

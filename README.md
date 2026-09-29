@@ -39,7 +39,7 @@ They use `udara_cli list-clients --json` and `udara_cli history --json`, which a
 
 ## Migrating an Existing Project
 
-Projects set up before 1.5.0 bundle each client's `.env` into the app with
+Projects set up before 1.3.1 bundle each client's `.env` into the app with
 flutter_dotenv, where anyone can read it by unzipping the APK/IPA. They keep
 working unchanged until you migrate to [generated config](#app-configuration--secrets-):
 
@@ -123,7 +123,7 @@ FONT_FAMILY="Manrope"
 
 ## App Configuration & Secrets 🔐
 
-| | **Generated** (recommended; default for new projects) | **dotenv** (projects set up before 1.5.0) |
+| | **Generated** (recommended; default for new projects) | **dotenv** (projects set up before 1.3.1) |
 | --- | --- | --- |
 | What ships in the app | A compiled Dart class with the client's values | The client's whole `.env` as an asset (plus the default client's) |
 | Readable by unzipping the APK/IPA | No | Yes |
@@ -135,6 +135,8 @@ FONT_FAMILY="Manrope"
 ### Generated config
 
 With `app_config: mode: generated` in `udara.yaml`, every `build` and `whitelabel` writes `lib/udara_config.g.dart` for the client and restores it afterwards. Commit it: the checked-in (default client's) version is what plain `flutter run` uses, with no `--dart-define` needed.
+
+**After adding, renaming or removing a key** in any client's `.env`, run `udara_cli generate-config` (or Regenerate App Config in the extensions) so your code and IDE see the new field, then commit the file. Builds pick up new keys on their own. If your `.gitignore` ignores `*.g.dart` (build_runner), udara_cli adds an exception for this file.
 
 ```dart
 import 'package:your_app/udara_config.g.dart';
@@ -283,6 +285,7 @@ udara_cli setup [--clients a,b] [--notify] [--reset]
 udara_cli build --client <name> [options]          # see Building
 udara_cli whitelabel --client <name> [--test] [--keep]
 udara_cli migrate-config [--apply] [--include-detected] [--force]
+udara_cli generate-config [--client <name>] [--test]  # refresh lib/udara_config.g.dart
 udara_cli clean                                    # restore the project, then flutter clean
 udara_cli clean --workspaces                       # delete parallel build workspaces
 udara_cli list-clients [--json]
