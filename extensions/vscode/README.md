@@ -5,6 +5,8 @@ and run or build any client without leaving the editor. The extension is a
 thin UI over [`udara_cli`](https://pub.dev/packages/udara_cli); every action
 runs the CLI so results match what you get in a terminal.
 
+![The Udara view: clients with their .env values, and the build history](https://raw.githubusercontent.com/Deecency/udara_cli/main/extensions/screenshots/vscode/01-clients-panel.png)
+
 ## Install
 
 From the Marketplace: https://marketplace.visualstudio.com/items?itemName=deecency.udara-whitelabel
@@ -29,7 +31,9 @@ From the Marketplace: https://marketplace.visualstudio.com/items?itemName=deecen
 
 **Run Client** runs `udara_cli whitelabel --client <name> --keep` as a task,
 then starts a normal Flutter debug session through the Flutter extension
-(Dart-Code) with `--dart-define=CLIENT_ENV=.env`. You get the usual debug
+(Dart-Code). Projects that use udara_cli's generated app config (1.3.1+) have
+the client's values compiled in; projects that still bundle `.env` also get
+`--dart-define=CLIENT_ENV=.env`. You get the usual debug
 toolbar, hot reload on save, breakpoints and DevTools, on the device chosen in
 the Flutter device selector. Without the Flutter extension, or with
 `udara.launchMode` set to `terminal`, it runs `flutter run` in a terminal
@@ -48,18 +52,25 @@ client**), how many to **build in parallel** (Auto or 1-4), test env and
 fail-fast, then runs them as one `udara_cli build` batch. It reports how many
 builds succeeded and opens `build/udara/` or the per-job logs.
 
+![Build Multiple Clients: pick the clients to build](https://raw.githubusercontent.com/Deecency/udara_cli/main/extensions/screenshots/vscode/02-build-multiple-pick.png)
+
 **Progress:** every build shows a notification and a status bar item with
 percent, ETA and what each running job is doing. Cancel it from the
 notification to stop the build and every process it started.
 
-Requires udara_cli 1.4.0 or newer; the extension tells you if yours is older.
+Requires udara_cli 1.3.1 or newer; the extension tells you if yours is older.
+
+![Three clients built in parallel, with the summary and the updated build history](https://raw.githubusercontent.com/Deecency/udara_cli/main/extensions/screenshots/vscode/04-batch-build.png)
 
 **Build History view** lists every recorded build from
 `.udara_build_history.json` with pass/fail icons, duration, and a tooltip with
 the error message. Reveal the artifact or copy the error inline.
 
 Other commands: **Doctor**, **Clean**, **Diff Two Clients…**, **Set Up
-Clients…**, **Clear Build History**, **Install udara_cli**.
+Clients…**, **Clear Build History**, **Install udara_cli**. Set Up Clients… can
+start the new clients' `.env` files from an existing client (udara_cli 1.3.2+).
+
+![Every Udara command in the Command Palette](https://raw.githubusercontent.com/Deecency/udara_cli/main/extensions/screenshots/vscode/03-commands.png)
 
 ## Settings
 

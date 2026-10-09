@@ -25,11 +25,15 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
 - **Toolbar / right-click actions**: Run Client, Debug Client, Run Client
   with Test Env, Build Client…, Build Multiple Clients…, Whitelabel Project as Client…, Doctor, Clean,
   Diff Two Clients…, Set Up Clients…. The same actions live under **Tools |
-  Udara Whitelabel**, where they prompt for a client.
+  Udara Whitelabel**, where they prompt for a client. Set Up Clients… can
+  start the new clients' `.env` files from an existing client (udara_cli
+  1.3.2+).
 - **Run Client / Debug Client** create (or update) a normal Flutter run
   configuration for the client, named e.g. `Udara: acme`, and launch it. Its
-  *Before launch* step runs `udara_cli whitelabel --client acme --keep`, and it
-  passes `--dart-define=CLIENT_ENV=.env`. Everything after that is the Flutter
+  *Before launch* step runs `udara_cli whitelabel --client acme --keep`.
+  Projects that still bundle `.env` also get `--dart-define=CLIENT_ENV=.env`;
+  with udara_cli's generated app config (1.3.1+) the client's values are
+  compiled in. Everything after that is the Flutter
   plugin's own UI: the device selector, Run / Debug buttons, hot reload and
   hot restart, DevTools and breakpoints. Because the configurations stay in
   the run dropdown, you can also just pick `Udara: acme` there next time.
@@ -48,7 +52,7 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
 - **Progress:** builds open the Udara tool window with a progress bar showing
   percent, ETA and each running job's step. Stop the build from the Run tool
   window to cancel every job.
-- Requires udara_cli 1.4.0 or newer; the plugin tells you if yours is older.
+- Requires udara_cli 1.3.1 or newer; the plugin tells you if yours is older.
 - **History tab**: every recorded build from `.udara_build_history.json`.
   Double-click a row to reveal the artifact or see the error.
 

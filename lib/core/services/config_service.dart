@@ -129,6 +129,46 @@ class ConfigService {
     }
   }
 
+  /// First line of a root `.env` staged for native builds; lets `clean`
+  /// recognise it as udara_cli's.
+  static const stagedEnvHeader =
+      '# Staged by udara_cli for native build tools during a build. Not part of the app; removed afterwards.';
+
+  /// Generated app config: writes the root `.env` for native build tooling
+  /// (e.g. Gradle reading signing passwords) as the client's `.env` plus its
+  /// `.secrets`. It is never registered as an app asset, so nothing in it
+  /// ships; it is backed up / removed on cleanup like [copyToRootEnv].
+  Future<File> stageNativeEnv(File envFile, File? secretsFile,
+      {bool trackForCleanup = true}) async {
+    final target = File(p.join(projectDir, '.env'));
+    try {
+      if (trackForCleanup) {
+        if (target.existsSync()) {
+          if (!hasBackup(target)) await createBackup(target);
+        } else {
+          await markCreated(target);
+        }
+      }
+      final buffer = StringBuffer()
+        ..writeln(stagedEnvHeader)
+        ..write(await envFile.readAsString());
+      if (secretsFile != null) {
+        buffer
+          ..writeln()
+          ..writeln(
+              '# ---- ${p.basename(secretsFile.path)} (build-time only, never shipped) ----')
+          ..write(await secretsFile.readAsString());
+      }
+      await target.writeAsString(buffer.toString());
+      return target;
+    } catch (e, s) {
+      if (e is BuildException) rethrow;
+      throw BuildException('Failed to stage the root .env for native builds.',
+          fix: 'Check write permissions for "${target.path}".',
+          originalStackTrace: s);
+    }
+  }
+
   // --------------------------------------------------------------------------
   // YAML MANIPULATION (pubspec.yaml, etc.)
   // --------------------------------------------------------------------------
@@ -158,9 +198,13 @@ class ConfigService {
   /// Rewrites the `flutter.assets` list in pubspec.yaml so that exactly one
   /// branding folder (the active client's) and the runtime env file are
   /// registered. The default client's fallback env entry is preserved.
+  ///
+  /// With [keepDefaultEnv] false (generated app config), no env file stays
+  /// registered at all, including the default client's.
   Future<void> updatePubspecAssets({
     required String clientAssetPath,
     required List<String> requiredExtraAssets,
+    bool keepDefaultEnv = true,
   }) async {
     final file = File(p.join(projectDir, 'pubspec.yaml'));
     if (!file.existsSync()) {
@@ -181,7 +225,8 @@ class ConfigService {
 
       final newAssets = currentAssets
           .map((a) => a.toString())
-          .where((asset) => !_isManagedAsset(asset))
+          .where(
+              (asset) => !isManagedAsset(asset, keepDefaultEnv: keepDefaultEnv))
           .toList();
 
       final branding = 'assets/branding/$clientAssetPath/';
@@ -204,8 +249,8 @@ class ConfigService {
 
   /// Asset entries the CLI owns and may replace: branding folders and env
   /// files, except the default client's fallback env.
-  static bool _isManagedAsset(String asset) {
-    if (asset == defaultClientEnvAsset) return false;
+  static bool isManagedAsset(String asset, {bool keepDefaultEnv = true}) {
+    if (keepDefaultEnv && asset == defaultClientEnvAsset) return false;
     if (asset.startsWith('assets/branding/')) return true;
     final name = p.basename(asset);
     return name == '.env' ||
@@ -321,6 +366,17 @@ class ConfigService {
     }
   }
 
+  /// Project-relative paths of every file currently backed up.
+  List<String> backedUpFiles() {
+    if (!_backupRoot.existsSync()) return const [];
+    return _backupRoot
+        .listSync(recursive: true)
+        .whereType<File>()
+        .map((f) => p.relative(f.path, from: _backupRoot.path))
+        .toList()
+      ..sort();
+  }
+
   /// Whether a backup exists for [file].
   bool hasBackup(File file) {
     final relativePath = p.relative(file.path, from: projectDir);
@@ -380,6 +436,125 @@ class ConfigService {
   Future<void> clearBackups() async {
     if (await _udaraDir.exists()) {
       await _udaraDir.delete(recursive: true);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // NATIVE BRANDING SNAPSHOTS (build restores everything it touched)
+  // --------------------------------------------------------------------------
+
+  /// Files the branding steps and common hooks rewrite or create.
+  static const nativeBrandingFiles = [
+    'android/app/build.gradle',
+    'android/app/build.gradle.kts',
+    'android/app/src/main/AndroidManifest.xml',
+    'ios/Runner/Info.plist',
+    'ios/Runner.xcodeproj/project.pbxproj',
+    'lib/firebase_options.dart',
+    'android/app/google-services.json',
+    'ios/Runner/GoogleService-Info.plist',
+    'firebase.json',
+  ];
+
+  /// Folders the icon and splash generators create, overwrite and delete
+  /// files in, so they are snapshotted whole.
+  static const nativeBrandingDirs = [
+    'android/app/src/main/res',
+    'ios/Runner/Assets.xcassets',
+    'ios/Runner/Base.lproj',
+  ];
+
+  /// The active client's fonts are copied here; snapshotted by every run
+  /// that applies client fonts so the previous fonts come back exactly.
+  static const fontsDir = 'assets/fonts';
+
+  Directory get _snapshotRoot => Directory(p.join(_udaraDir.path, 'snapshots'));
+  File get _snapshotIndex => File(p.join(_udaraDir.path, 'snapshots.index'));
+  File get _keptMarker => File(p.join(_udaraDir.path, 'kept'));
+
+  /// Backs up (or records as new) every native branding file and snapshots
+  /// the branding folders, so [restoreNativeBranding] can undo the
+  /// bundle id, app name, icon, splash and hook changes of a build.
+  Future<void> snapshotNativeBranding() async {
+    for (final rel in nativeBrandingFiles) {
+      final file = File(p.join(projectDir, rel));
+      if (file.existsSync()) {
+        if (!hasBackup(file)) await createBackup(file);
+      } else {
+        await markCreated(file);
+      }
+    }
+    await snapshotDirectories(nativeBrandingDirs);
+  }
+
+  /// Snapshots [fontsDir] (or records that it doesn't exist yet).
+  Future<void> snapshotFonts() => snapshotDirectories(const [fontsDir]);
+
+  /// Snapshots each folder whole. A folder that doesn't exist yet is
+  /// recorded as absent, so restoring removes it if the run created it.
+  /// Folders already snapshotted in this run keep their first snapshot.
+  Future<void> snapshotDirectories(List<String> rels) async {
+    final index = _readSnapshotIndex();
+    final known =
+        index.map((e) => e.startsWith('!') ? e.substring(1) : e).toSet();
+    for (final rel in rels) {
+      if (known.contains(rel)) continue;
+      final dir = Directory(p.join(projectDir, rel));
+      if (dir.existsSync()) {
+        await WorkspaceManager.sync(
+            dir, Directory(p.join(_snapshotRoot.path, rel)));
+        index.add(rel);
+      } else {
+        index.add('!$rel');
+      }
+    }
+    await _snapshotIndex.parent.create(recursive: true);
+    await _snapshotIndex.writeAsString(index.join('\n'));
+  }
+
+  List<String> _readSnapshotIndex() => _snapshotIndex.existsSync()
+      ? _snapshotIndex
+          .readAsLinesSync()
+          .where((l) => l.trim().isNotEmpty)
+          .toList()
+      : <String>[];
+
+  /// `whitelabel --keep` leaves its backups in place instead of restoring
+  /// them, and records the client here. The next run (or `clean`) restores
+  /// the project from them before doing anything else.
+  Future<void> markKept(String client) async {
+    await _keptMarker.parent.create(recursive: true);
+    await _keptMarker.writeAsString(client);
+  }
+
+  /// The client a `whitelabel --keep` left the project branded as, if any.
+  String? keptClient() =>
+      _keptMarker.existsSync() ? _keptMarker.readAsStringSync().trim() : null;
+
+  /// Makes every snapshotted folder match its snapshot again: restores
+  /// overwritten and deleted files, removes files the run created, and
+  /// removes folders that didn't exist before the run.
+  Future<void> restoreNativeBranding() async {
+    for (final entry in _readSnapshotIndex()) {
+      if (entry.startsWith('!')) {
+        final created = Directory(p.join(projectDir, entry.substring(1)));
+        if (created.existsSync()) {
+          Logger.info(
+              'Removing ${entry.substring(1)}/ (created by the run)...');
+          await created.delete(recursive: true);
+        }
+        continue;
+      }
+      final rel = entry;
+      final snapshot = Directory(p.join(_snapshotRoot.path, rel));
+      if (!snapshot.existsSync()) continue;
+      Logger.info('Restoring $rel/...');
+      try {
+        await WorkspaceManager.sync(
+            snapshot, Directory(p.join(projectDir, rel)));
+      } catch (e) {
+        Logger.warning('Failed to restore $rel: $e');
+      }
     }
   }
 

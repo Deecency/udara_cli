@@ -16,6 +16,13 @@ class SetupCommand extends UdaraCommand {
         abbr: 'c',
         help: 'Initialize client directories (comma-separated list).',
       )
+      ..addOption(
+        'from',
+        help: 'With --clients: start each new client\'s .env and .env_test '
+            'from this existing client, with the new client\'s paths and '
+            'its BRANDING.md values.',
+        valueHelp: 'client',
+      )
       ..addFlag(
         'notify',
         abbr: 'n',
@@ -33,6 +40,7 @@ class SetupCommand extends UdaraCommand {
   USAGE:
   udara_cli setup                       # install deps & config files
   udara_cli setup --clients a,b,c       # scaffold client folders
+  udara_cli setup --clients a --from b  # start a's .env files from b's
   udara_cli setup --notify              # store a Slack bot token
   udara_cli setup --reset               # clear stored CLI settings''';
 
@@ -44,6 +52,10 @@ class SetupCommand extends UdaraCommand {
 
     final reset = argResults!['reset'] as bool;
     final clientsOption = argResults!['clients'] as String?;
+    final from = argResults!['from'] as String?;
+    if (from != null && clientsOption == null) {
+      throw UsageException('--from needs --clients.', usage);
+    }
     final notifyOnly = argResults!['notify'] as bool;
 
     try {
@@ -53,7 +65,7 @@ class SetupCommand extends UdaraCommand {
       }
 
       if (clientsOption != null) {
-        await _handleClientsSetup(clientsOption);
+        await _handleClientsSetup(clientsOption, from: from);
         return;
       }
 
@@ -81,8 +93,23 @@ class SetupCommand extends UdaraCommand {
   Future<void> _handleProjectSetup() async {
     Logger.phase('Udara CLI Project Setup');
 
+    // New projects (no clients yet, no app_config choice) compile client
+    // config into the app instead of bundling .env. Existing projects keep
+    // what they have until they run "udara_cli migrate-config".
+    final settings = AppConfigSettings.load(projectDir);
+    final isNewProject = !clientsDir.existsSync() && !settings.declared;
+    if (isNewProject) {
+      _writeGeneratedModeSettings();
+      Logger.success('udara.yaml: client config will be compiled into '
+          '${AppConfigSettings.defaultOutput} (no .env ships with the app).');
+    } else if (!settings.isGenerated) {
+      Logger.info('Tip: this project bundles .env files with the app. '
+          'Run "udara_cli migrate-config" to compile them in instead.');
+    }
+    final generated = AppConfigSettings.load(projectDir).isGenerated;
+
     Logger.phase('1: Dependencies');
-    await _ensureDependencies();
+    await _ensureDependencies(needsDotenv: !generated);
 
     Logger.phase('2: Configuration Files');
     await _ensureConfigurationFiles();
@@ -93,7 +120,7 @@ class SetupCommand extends UdaraCommand {
         'Next step: Run "udara_cli setup --clients <name1,name2>" to initialize clients.');
   }
 
-  Future<void> _handleClientsSetup(String clientsInput) async {
+  Future<void> _handleClientsSetup(String clientsInput, {String? from}) async {
     Logger.phase('🚀 Initializing Client Directories');
 
     final clientNames = clientsInput
@@ -113,6 +140,11 @@ class SetupCommand extends UdaraCommand {
       );
     }
 
+    if (from != null) _checkCopySource(from, clientNames);
+    // The default client may be added below as a fallback; it's only copied
+    // into when it was asked for.
+    final requested = {...clientNames};
+
     if (!clientNames.contains(WhiteLabelService.defaultClientName)) {
       Logger.info(
           'Adding the "default" client, which acts as the runtime fallback.');
@@ -130,6 +162,9 @@ class SetupCommand extends UdaraCommand {
     }
 
     for (final clientName in clientNames) {
+      if (from != null && requested.contains(clientName)) {
+        await _copyEnvFrom(from, clientName);
+      }
       await _createClientStructure(clientsDir.path, clientName);
     }
 
@@ -145,8 +180,25 @@ class SetupCommand extends UdaraCommand {
       );
     }
 
-    // Update pubspec with the default .env entry
-    await config.addInitialAssetEntries();
+    final appConfig = AppConfigService(projectDir, config);
+    if (appConfig.settings.isGenerated) {
+      // Plain "flutter run" uses the default client's generated config.
+      if (!appConfig.outputFile.existsSync()) {
+        await appConfig.write(
+          client: WhiteLabelService.defaultClientName,
+          envFile: File(p.join(
+              clientsDir.path, WhiteLabelService.defaultClientName, '.env')),
+          isTest: false,
+          trackForCleanup: false,
+        );
+        Logger.success(
+            'Generated ${appConfig.settings.output} for the default client (commit it).');
+      }
+      await appConfig.ensureOutputTracked();
+    } else {
+      // Update pubspec with the default .env entry
+      await config.addInitialAssetEntries();
+    }
     await _ensureGitignore();
 
     Logger.success('Client setup completed successfully!');
@@ -156,6 +208,75 @@ class SetupCommand extends UdaraCommand {
     Logger.info('  2. Edit each client\'s .env (app name, bundle id, team id)');
     Logger.info(
         '  3. Run "udara_cli doctor" to validate, then "udara_cli build --client <name>"');
+  }
+
+  void _checkCopySource(String from, List<String> clientNames) {
+    if (clientNames.contains(from)) {
+      throw BuildException(
+        'A client can\'t be started from itself ("$from").',
+        fix: 'Pass a different, existing client to --from.',
+      );
+    }
+    if (!File(p.join(clientsDir.path, from, '.env')).existsSync()) {
+      throw BuildException(
+        'Client "$from" has no .env to copy.',
+        fix: 'Pass an existing client with a .env to --from '
+            '(see "udara_cli list-clients").',
+      );
+    }
+  }
+
+  /// Writes the client's missing .env / .env_test from [from]'s, with the
+  /// new client's folder paths and the values in its BRANDING.md (left by
+  /// Udara Onboarding's "Promote to repo"). Existing files are kept.
+  Future<void> _copyEnvFrom(String from, String client) async {
+    final clientDir = Directory(p.join(clientsDir.path, client));
+    await clientDir.create(recursive: true);
+    final brandingFile = File(p.join(clientDir.path, 'BRANDING.md'));
+    final branding = brandingFile.existsSync()
+        ? ClientEnvCopy.brandingFromMarkdown(await brandingFile.readAsString())
+        : const <String, String>{};
+    Logger.info(branding.isEmpty
+        ? '$client: starting .env files from "$from" (no BRANDING.md values).'
+        : '$client: starting .env files from "$from" with '
+            '${branding.length} values from BRANDING.md.');
+
+    for (final name in ['.env', '.env_test']) {
+      final target = File(p.join(clientDir.path, name));
+      final source = File(p.join(clientsDir.path, from, name));
+      if (target.existsSync()) {
+        Logger.info('Skipping existing file: $client/$name');
+        continue;
+      }
+      if (!source.existsSync()) {
+        Logger.info('"$from" has no $name; $client gets the template.');
+        continue;
+      }
+      final result = ClientEnvCopy.copy(
+        source: await source.readAsString(),
+        from: from,
+        to: client,
+        overrides: branding,
+      );
+      await target.writeAsString(result.text);
+      Logger.success('Created: $client/$name (from $from/$name)');
+      if (result.overridden.isNotEmpty || result.added.isNotEmpty) {
+        Logger.info('  From BRANDING.md: '
+            '${[...result.overridden, ...result.added].join(', ')}');
+      }
+      if (result.pathsRewritten.isNotEmpty) {
+        Logger.info('  Paths now under $client: '
+            '${result.pathsRewritten.join(', ')}');
+      }
+      if (result.dropped.isNotEmpty) {
+        Logger.info('  Left out (release signing of $from; put $client\'s in '
+            '.secrets): ${result.dropped.join(', ')}');
+      }
+      if (result.sameAsSource.isNotEmpty) {
+        Logger.warning('  Still the same as $from: '
+            '${result.sameAsSource.join(', ')}. Change them in $client/$name.');
+      }
+    }
   }
 
   Future<void> _handleNotificationSetup() async {
@@ -168,7 +289,7 @@ class SetupCommand extends UdaraCommand {
   // LOGIC IMPLEMENTATIONS
   // --------------------------------------------------------------------------
 
-  Future<void> _ensureDependencies() async {
+  Future<void> _ensureDependencies({required bool needsDotenv}) async {
     final pubspecFile = File(p.join(projectDir, 'pubspec.yaml'));
     if (!pubspecFile.existsSync()) {
       throw BuildException(
@@ -183,7 +304,7 @@ class SetupCommand extends UdaraCommand {
       'flutter_launcher_icons',
       'splash_master'
     ];
-    const requiredDeps = ['flutter_dotenv'];
+    final requiredDeps = [if (needsDotenv) 'flutter_dotenv'];
 
     try {
       final content = await pubspecFile.readAsString();
@@ -263,7 +384,26 @@ class SetupCommand extends UdaraCommand {
         '.udara/',
         ConfigService.historyFileName,
         '/.env',
+        'clients/*/.secrets*',
+        'clients/*/*.secrets',
       ]);
+
+  void _writeGeneratedModeSettings() {
+    final file = File(p.join(projectDir, AppConfigSettings.configFileName));
+    final existing = file.existsSync() ? file.readAsStringSync() : '';
+    final section = '''
+app_config:
+  # "generated": client config is compiled into a Dart class per build.
+  # "dotenv": the client's .env is bundled with the app (readable by anyone).
+  mode: generated
+  output: ${AppConfigSettings.defaultOutput}
+  # .env keys only the CLI needs; never compiled into the app.
+  exclude: [${AppConfigSettings.defaultExclude.join(', ')}]
+''';
+    file.writeAsStringSync(existing.trim().isEmpty
+        ? '# udara_cli project settings\n$section'
+        : '${existing.trimRight()}\n\n$section');
+  }
 
   Future<void> _createClientStructure(
     String clientsPath,
@@ -351,7 +491,9 @@ APP_LOGO_PATH="assets/branding/$client/logo_large.png"
 # the Xcode project's signing untouched.
 # DEVELOPMENT_TEAM="ABCDE12345"
 
-# Anything else here is available in the app via dotenv.env['KEY']:
+# Anything else here is available in the app (UdaraConfig, or
+# dotenv.env['KEY'] in projects that still bundle .env). It ships inside
+# the app, so keep secrets in .secrets next to this file instead.
 # PRIMARY_COLOR="0xFF4285F4"
 # FONT_FAMILY="Roboto"
 ''';
@@ -366,6 +508,7 @@ APP_LOGO_PATH="assets/branding/$client/logo_large.png"
 | `logo_small.png` | App icon source (replace the placeholder, 1024x1024 recommended) |
 | `logo_large.png` | Splash screen image source (replace the placeholder) |
 | `fonts/` | Optional custom fonts plus a `fonts.yaml` describing the families |
+| `.secrets` | Optional build-time secrets (signing, upload tokens). Never shipped; hooks read it via `UDARA_SECRETS_FILE`. Git-ignored. |
 
 Everything in this folder except env files, secrets and patterns listed in
 `.udaraignore` is copied to `assets/branding/$client/` at build time.

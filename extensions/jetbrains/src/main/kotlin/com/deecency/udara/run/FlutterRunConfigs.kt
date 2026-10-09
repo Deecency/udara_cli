@@ -1,5 +1,6 @@
 package com.deecency.udara.run
 
+import com.deecency.udara.cli.UdaraCli
 import com.deecency.udara.settings.UdaraSettings
 import com.intellij.execution.ProgramRunnerUtil
 import com.intellij.execution.RunManager
@@ -37,7 +38,7 @@ object FlutterRunConfigs {
             ?: runManager.createConfiguration(name, factory).also { runManager.addConfiguration(it) }
 
         val userArgs = ParametersListUtil.parse(UdaraSettings.getInstance().state.flutterRunArgs)
-        val additionalArgs = ParametersListUtil.join(listOf("--dart-define=CLIENT_ENV=.env") + userArgs)
+        val additionalArgs = ParametersListUtil.join(UdaraCli.envDefines(root) + userArgs)
         val state = Element("configuration")
             .addContent(option("filePath", File(root, "lib/main.dart").path))
             .addContent(option("additionalArgs", additionalArgs))

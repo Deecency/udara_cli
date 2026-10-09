@@ -1,8 +1,23 @@
 # Changelog
 
+## 0.3.1
+
+- Set Up Clients… can start the new clients' `.env` and `.env_test` from an
+  existing client (udara_cli 1.3.2+ `setup --from`): its keys with the new
+  client's paths and the values from its `BRANDING.md`.
+
+## 0.3.0
+
+- Projects using udara_cli's generated app config (1.3.1+): Run Client no
+  longer passes `--dart-define=CLIENT_ENV=.env`, since the config is compiled
+  in. Projects that still bundle `.env` keep the flag.
+- Regenerate App Config (Clients view `…` menu and Command Palette):
+  refreshes the generated config class after you add or remove `.env` keys
+  (`udara_cli generate-config`). Shown for projects in generated mode.
+
 ## 0.2.0
 
-Requires udara_cli 1.4.0 or newer (the extension tells you if it's older).
+Requires udara_cli 1.3.1 or newer (the extension tells you if it's older).
 
 - Build Multiple Clients…: pick several clients, Android and/or iOS, AAB
   and/or APK, and build them in one batch, **in parallel** (Auto, or 1-4 at a

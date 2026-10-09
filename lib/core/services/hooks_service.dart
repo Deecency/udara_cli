@@ -39,6 +39,7 @@ class HookContext {
     this.bundleId,
     this.appName,
     this.artifact,
+    this.secretsFile,
   });
 
   final String command;
@@ -52,6 +53,10 @@ class HookContext {
   final String? bundleId;
   final String? appName;
   final String? artifact;
+
+  /// `clients/<client>/.secrets` (or `.secrets_test`), when present. Only
+  /// hooks see it; it is never compiled into the app.
+  final File? secretsFile;
 
   HookContext copyWith(
           {String? platform, String? buildType, String? artifact}) =>
@@ -67,6 +72,7 @@ class HookContext {
         bundleId: bundleId,
         appName: appName,
         artifact: artifact ?? this.artifact,
+        secretsFile: secretsFile,
       );
 
   HookContext withArtifact(String? path) => copyWith(artifact: path);
@@ -85,6 +91,8 @@ class HookContext {
         'UDARA_BUNDLE_ID': bundleId ?? '',
         'UDARA_APP_NAME': appName ?? '',
         if (artifact != null) 'UDARA_ARTIFACT': artifact!,
+        if (secretsFile != null)
+          'UDARA_SECRETS_FILE': secretsFile!.absolute.path,
       };
 }
 

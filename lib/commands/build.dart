@@ -88,6 +88,10 @@ class BuildCommand extends UdaraCommand {
   final String name = 'build';
 
   @override
+  String get invocation =>
+      '${runner?.executableName ?? 'udara_cli'} build [options] [-- <flutter build arguments>]';
+
+  @override
   final String description =
       '''Build whitelabeled versions of your Flutter app for one or more clients.
 
@@ -111,6 +115,9 @@ class BuildCommand extends UdaraCommand {
   # Every client's App Bundle
   udara_cli build --all-clients
 
+  # Anything after -- goes to every `flutter build` of the run as is
+  udara_cli build --client apple --type apk -- --target-platform android-arm64
+
 Batches split into jobs of one client on one platform. With --parallel above
 1, jobs run at the same time, each in its own copy of the project under
 ~/.udara_cli/workspaces/, with output in build/udara/logs/. A live progress
@@ -125,6 +132,9 @@ restored afterwards, even when a build fails. Every build is recorded in
   late CleanupService cleanup;
   SlackService? slackService;
 
+  /// Arguments after `--`, appended to every `flutter build` command.
+  List<String> _flutterArgs = const [];
+
   /// Progress for single-job (in-process) runs.
   ProgressTracker? _tracker;
   String? _progressFile;
@@ -138,6 +148,7 @@ restored afterwards, even when a build fails. Every build is recorded in
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
     final isTest = argResults!['test'] as bool;
+    _flutterArgs = argResults!.rest;
     final failFast = argResults!['fail-fast'] as bool;
     _progressFile = argResults!['progress-file'] as String?;
 
@@ -296,6 +307,7 @@ restored afterwards, even when a build fails. Every build is recorded in
         resultFile,
         '--progress-file',
         progressFile,
+        if (_flutterArgs.isNotEmpty) ...['--', ..._flutterArgs],
       ],
     );
 
@@ -539,7 +551,9 @@ restored afterwards, even when a build fails. Every build is recorded in
     // Validate udara.yaml up front so a typo fails before the long work.
     final hooks = HooksService(projectDir);
     hooks.load();
+    final appConfig = AppConfigService(projectDir, config);
     final hookContext = HookContext(
+      secretsFile: resolveSecretsFile(client, isTest: isTest),
       command: 'build',
       projectDir: projectDir,
       client: client,
@@ -555,6 +569,10 @@ restored afterwards, even when a build fails. Every build is recorded in
 
     Logger.success('Validated "$client" ($envFileName): $appName · $bundleId · '
         'v$version${requestedVersion != null ? ' (requested)' : ''}');
+    if (!appConfig.settings.isGenerated) {
+      Logger.info('App config: .env is bundled with the app as plain text. '
+          'Run "udara_cli migrate-config" to compile it in instead.');
+    }
 
     // -------------------------------------------------------------------------
     // PHASE 2: PROJECT CONFIGURATION
@@ -571,13 +589,32 @@ restored afterwards, even when a build fails. Every build is recorded in
       await config.createBackup(File(p.join(projectDir, 'pubspec.yaml')));
       await config.createBackup(
           File(p.join(projectDir, 'flutter_launcher_icons.yaml')));
-      if (config.pbxprojFile.existsSync()) {
-        await config.createBackup(config.pbxprojFile);
-      }
+      // Bundle id, app name, icons, splash and hook outputs (e.g. Firebase
+      // config) are restored after the build, so it leaves nothing behind.
+      await config.snapshotNativeBranding();
     });
 
-    await runStep('Staging client environment as root .env',
-        () => config.copyToRootEnv(envFile));
+    if (appConfig.settings.isGenerated) {
+      await runStep(
+          'Generating ${appConfig.settings.output}',
+          () => appConfig.write(
+              client: client, envFile: envFile, isTest: isTest));
+      // Native tooling (Gradle signing, Xcode scripts) may still read the
+      // root .env; it is not an app asset in this mode, so it can include
+      // the build-time secrets.
+      // Only when a native build file (e.g. a Gradle signing config) reads
+      // it; removed again by cleanup when the build ends.
+      final readers = appConfig.nativeEnvReaders();
+      if (readers.isNotEmpty) {
+        await runStep(
+            'Staging root .env for ${readers.keys.join(', ')} (removed after the build, never shipped)',
+            () => config.stageNativeEnv(
+                envFile, resolveSecretsFile(client, isTest: isTest)));
+      }
+    } else {
+      await runStep('Staging client environment as root .env',
+          () => config.copyToRootEnv(envFile));
+    }
 
     await runStep('Updating launcher icon & splash configs', () async {
       await config.updateYamlValue(
@@ -593,7 +630,11 @@ restored afterwards, even when a build fails. Every build is recorded in
       await whiteLabel.syncBrandingAssets(client, clientAssetsPath);
       await whiteLabel.applyClientFonts(client, clientAssetsPath);
       await config.updatePubspecAssets(
-          clientAssetPath: client, requiredExtraAssets: ['.env']);
+        clientAssetPath: client,
+        requiredExtraAssets:
+            appConfig.settings.isGenerated ? const [] : ['.env'],
+        keepDefaultEnv: !appConfig.settings.isGenerated,
+      );
     });
 
     if (platforms.contains('ios') && teamId != null && teamId.isNotEmpty) {
@@ -638,6 +679,7 @@ restored afterwards, even when a build fails. Every build is recorded in
     return _PreparedClient(
       version: version,
       passVersion: requestedVersion != null,
+      generatedConfig: appConfig.settings.isGenerated,
       hooks: hooks,
       hookContext: hookContext,
     );
@@ -658,10 +700,15 @@ restored afterwards, even when a build fails. Every build is recorded in
       final versionArgs = prepared.passVersion
           ? ' ${prepared.version.flutterArgs.join(' ')}'
           : '';
+      final extraArgs = _flutterArgs.isEmpty
+          ? ''
+          : ' ${_flutterArgs.map(shellArgument).join(' ')}';
       await runStep(
           'Building ${target.platform} (${target.type.toUpperCase()})',
           () => runShell(
-              '${target.flutterCommand} --dart-define=CLIENT_ENV=.env$versionArgs'));
+              // Generated config is compiled in; only dotenv mode needs to
+              // tell the app which env file to load.
+              '${target.flutterCommand}${prepared.generatedConfig ? '' : ' --dart-define=CLIENT_ENV=.env'}$versionArgs$extraArgs'));
 
       final artifact = await runStep(
           'Collecting ${target.type.toUpperCase()} artifact',
@@ -669,6 +716,11 @@ restored afterwards, even when a build fails. Every build is recorded in
               clientName: client,
               version: prepared.version.toString(),
               type: target.type));
+
+      // Before after_build hooks, so an upload hook never gets it.
+      if (target.platform == 'android') {
+        await _checkReleaseSigning(client, target, artifact);
+      }
 
       _setStep('Running after_build hooks');
       await prepared.hooks.run(
@@ -707,6 +759,37 @@ restored afterwards, even when a build fails. Every build is recorded in
         cause: e,
       );
     }
+  }
+
+  /// Gradle signs a release build with the debug key when no release
+  /// keystore is configured, and the build still succeeds. Stores reject
+  /// such bundles, so a debug-signed AAB fails the build (renamed so it
+  /// can't be uploaded by mistake); a debug-signed APK, often used for QA
+  /// sideloading, only warns.
+  Future<void> _checkReleaseSigning(
+      String client, BuildTarget target, File artifact) async {
+    if (ArtifactSigning.isDebugSigned(artifact) != true) return;
+
+    const fix = 'Configure the release keystore: RELEASE_STORE_FILE (and its '
+        'passwords/alias) in clients/<client>/.env or .secrets for Gradle '
+        'configs that read the root .env, or storeFile, storePassword, '
+        'keyAlias and keyPassword in android/key.properties. Also make the '
+        'release buildType in android/app/build.gradle use '
+        'signingConfigs.release without falling back to signingConfigs.debug, '
+        'so a missing keystore fails the build.';
+    if (target.type != 'aab') {
+      Logger.warning('${p.basename(artifact.path)} is signed with the Android '
+          'DEBUG key (fine for testing, rejected by stores). $fix');
+      return;
+    }
+    final flagged =
+        artifact.path.replaceFirst(RegExp(r'\.aab$'), '.debug-signed.aab');
+    await artifact.rename(flagged);
+    throw BuildException(
+      'The $client App Bundle is signed with the Android DEBUG key; Google '
+      'Play will reject it. Kept as ${p.relative(flagged, from: projectDir)}.',
+      fix: fix,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -813,6 +896,7 @@ class _PreparedClient {
     required this.passVersion,
     required this.hooks,
     required this.hookContext,
+    required this.generatedConfig,
   });
 
   final BuildVersion version;
@@ -822,4 +906,7 @@ class _PreparedClient {
   final bool passVersion;
   final HooksService hooks;
   final HookContext hookContext;
+
+  /// Whether the app config is a generated class (no .env to point at).
+  final bool generatedConfig;
 }

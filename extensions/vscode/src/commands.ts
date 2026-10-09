@@ -41,6 +41,7 @@ export function registerCommands(ctx: CommandContext): vscode.Disposable[] {
     reg('udara.whitelabel', (node?: ClientItem) => whitelabelClient(ctx, node)),
     reg('udara.doctor', (node?: ClientItem) => doctor(ctx, node)),
     reg('udara.clean', () => clean(ctx)),
+    reg('udara.generateConfig', () => generateConfig(ctx)),
     reg('udara.diff', () => diffClients(ctx)),
     reg('udara.setupClients', () => setupClients(ctx)),
     reg('udara.openEnv', (node: EnvEntryItem | EnvFileItem) => openEnv(node)),
@@ -67,7 +68,10 @@ async function requireRoot(ctx: CommandContext): Promise<string | undefined> {
 }
 
 /** The oldest udara_cli with every option this extension passes. */
-const MIN_CLI_VERSION = '1.4.0';
+const MIN_CLI_VERSION = '1.3.1';
+
+/** Set Up Clients… "start from an existing client" (setup --from). */
+const FROM_CLI_VERSION = '1.3.2';
 
 async function ensureCli(ctx: CommandContext): Promise<boolean> {
   const listing = await ctx.clients.ensureLoaded();
@@ -190,6 +194,10 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
   setActiveClient(ctx, client.name);
 
   const { flutterPath, flutterRunArgs, askForDevice, launchMode } = getConfig();
+  // Only projects that still bundle .env need to tell the app which file to
+  // load; generated config is compiled in.
+  const listing = await ctx.clients.ensureLoaded();
+  const envDefine = listing.appConfigMode === 'generated' ? [] : ['--dart-define=CLIENT_ENV=.env'];
   const sessionName = `Udara: ${client.name}${isTest ? ' (test)' : ''}`;
 
   if (launchMode === 'native' && isDartExtensionInstalled()) {
@@ -205,7 +213,7 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
       name: sessionName,
       cwd: root,
       program: path.join(root, 'lib', 'main.dart'),
-      toolArgs: ['--dart-define=CLIENT_ENV=.env', ...flutterRunArgs],
+      toolArgs: [...envDefine, ...flutterRunArgs],
     });
     if (!started) {
       vscode.window.showErrorMessage(
@@ -224,7 +232,7 @@ async function runClient(ctx: CommandContext, node: ClientItem | undefined, isTe
   const device = askForDevice ? await pickDevice(root) : undefined;
   const runArgs = [
     'run',
-    '--dart-define=CLIENT_ENV=.env',
+    ...envDefine,
     ...(device ? ['-d', device] : []),
     ...flutterRunArgs,
   ];
@@ -263,7 +271,9 @@ async function whitelabelClient(ctx: CommandContext, node: ClientItem | undefine
   if (code === 0) {
     setActiveClient(ctx, client.name);
     vscode.window.showInformationMessage(
-      `Project is now branded as "${client.name}". Run it with: flutter run --dart-define=CLIENT_ENV=.env`,
+      `Project is now branded as "${client.name}". Run it with: flutter run${
+        (await ctx.clients.ensureLoaded()).appConfigMode === 'generated' ? '' : ' --dart-define=CLIENT_ENV=.env'
+      }`,
     );
   } else {
     vscode.window.showErrorMessage(`Whitelabel failed (exit code ${code ?? '?'}). See the terminal.`);
@@ -607,6 +617,20 @@ async function clean(ctx: CommandContext) {
   }
 }
 
+/** Refreshes the committed app config class after .env keys change. */
+async function generateConfig(ctx: CommandContext) {
+  const root = await requireRoot(ctx);
+  if (!root || !(await ensureCli(ctx))) {
+    return;
+  }
+  const code = await runCliTask('generate-config', ['generate-config'], root);
+  ctx.clients.refresh();
+  if (code === 0) {
+    setActiveClient(ctx, undefined);
+    vscode.window.showInformationMessage('Udara: app config regenerated for the default client. Commit it.');
+  }
+}
+
 async function diffClients(ctx: CommandContext) {
   const root = await requireRoot(ctx);
   if (!root || !(await ensureCli(ctx))) {
@@ -655,16 +679,56 @@ async function setupClients(ctx: CommandContext) {
   if (!input) {
     return;
   }
-  const names = input
+  const list = input
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean)
-    .join(',');
-  const code = await runCliTask('setup clients', ['setup', '--clients', names], root);
+    .filter(Boolean);
+  const names = list.join(',');
+
+  // Optionally start the .env files from an existing client (setup --from).
+  const listing = await ctx.clients.ensureLoaded();
+  const sources = listing.clients.filter((c) => c.envFiles.env && !list.includes(c.name));
+  let from: string | undefined;
+  if (sources.length > 0) {
+    const template = { label: 'Template', description: 'placeholder values to fill in' };
+    const picked = await vscode.window.showQuickPick(
+      [
+        template,
+        ...sources.map((c) => ({
+          label: c.name,
+          description: c.appName ?? undefined,
+          detail: 'Copy its .env and .env_test; paths and BRANDING.md values become the new client\'s',
+        })),
+      ],
+      { placeHolder: 'Start the new .env files from…' },
+    );
+    if (!picked) {
+      return;
+    }
+    if (picked !== template) {
+      const version = await cliVersion(root);
+      if (version && compareVersions(version, FROM_CLI_VERSION) < 0) {
+        const choice = await vscode.window.showWarningMessage(
+          `Starting from an existing client needs udara_cli ${FROM_CLI_VERSION} or newer (you have ${version}).`,
+          'Upgrade',
+        );
+        if (choice === 'Upgrade') {
+          await installCli(ctx);
+        }
+        return;
+      }
+      from = picked.label;
+    }
+  }
+
+  const args = ['setup', '--clients', names, ...(from ? ['--from', from] : [])];
+  const code = await runCliTask('setup clients', args, root);
   ctx.clients.refresh();
   if (code === 0) {
     vscode.window.showInformationMessage(
-      `Created clients: ${names}. Replace the placeholder logos and edit each .env.`,
+      from
+        ? `Created clients: ${names}, with .env files from ${from}. Check the values that belong to ${from}.`
+        : `Created clients: ${names}. Replace the placeholder logos and edit each .env.`,
     );
   }
 }
