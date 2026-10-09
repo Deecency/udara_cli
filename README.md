@@ -69,12 +69,15 @@ Your `.env` files are never modified. Anything it can't rewrite safely (writes t
 ```bash
 udara_cli setup                                    # dependencies, configs, .gitignore
 udara_cli setup --clients default,clientA,clientB  # client folders from templates
+udara_cli setup --clients clientC --from clientA   # clientC's .env files start from clientA's
 udara_cli doctor                                   # check everything
 ```
 
 `setup` installs `rename`, `flutter_launcher_icons` and `splash_master`, creates `flutter_launcher_icons.yaml` and the `splash_master` config, starts new projects in generated config mode, and git-ignores the CLI's local state (`.udara/`, `.udara_build_history.json`, `/.env`, `clients/*/.secrets*`).
 
 `setup --clients` creates `clients/<name>/` with `.env`, `.env_test`, placeholder `logo_small.png` / `logo_large.png` (replace them; `doctor` warns while they are placeholders), a `fonts/` folder and a README. A `default` client is always created: it is what plain `flutter run` uses.
+
+`setup --clients <new> --from <existing>` starts the new client's `.env` and `.env_test` from an existing client's instead of the template: same keys, comments and order, with `clients/<existing>/` and `assets/branding/<existing>/` paths pointed at the new client. If the new client's folder has a `BRANDING.md` with an ` ```env ` block (Udara Onboarding's "Promote to repo" adds one), those values replace or join the copied ones. Release signing keys (`RELEASE_*`) are left out, existing files are never overwritten, and it warns when the bundle id or app/bank name is still the existing client's. Other values that belong to the existing client (ids, API keys) are copied as they are, so check them.
 
 For Slack notifications: `udara_cli setup --notify` (a bot token `xoxb-…` with `chat:write`, `files:write`, `channels:read`).
 

@@ -1,3 +1,10 @@
+## 1.3.2
+
+* **NEW**:
+
+- `udara_cli setup --clients <new> --from <existing>`: starts the new client's `.env` and `.env_test` from an existing client's, with the new client's folder paths and the values from its `BRANDING.md` (Udara Onboarding's "Promote to repo"). Release signing keys are left out, existing files are kept, and it warns when the bundle id or names are still the existing client's.
+- `udara_cli build ... -- <flutter build arguments>`: anything after `--` is appended to every `flutter build` of the run (also in parallel batches), e.g. `-- --target-platform android-arm64 --split-debug-info=build/symbols`.
+
 ## 1.3.1
 
 Everything below is opt-in or backwards compatible: existing projects keep their current behaviour until they run `udara_cli migrate-config`.

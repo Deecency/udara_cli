@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Set Up Clients… can start the new clients' `.env` and `.env_test` from an
+  existing client (udara_cli 1.3.2+ `setup --from`): its keys with the new
+  client's paths and the values from its `BRANDING.md`.
+
 ## 0.3.0
 
 - Projects using udara_cli's generated app config (1.3.1+): Run Client no

@@ -16,6 +16,13 @@ class SetupCommand extends UdaraCommand {
         abbr: 'c',
         help: 'Initialize client directories (comma-separated list).',
       )
+      ..addOption(
+        'from',
+        help: 'With --clients: start each new client\'s .env and .env_test '
+            'from this existing client, with the new client\'s paths and '
+            'its BRANDING.md values.',
+        valueHelp: 'client',
+      )
       ..addFlag(
         'notify',
         abbr: 'n',
@@ -33,6 +40,7 @@ class SetupCommand extends UdaraCommand {
   USAGE:
   udara_cli setup                       # install deps & config files
   udara_cli setup --clients a,b,c       # scaffold client folders
+  udara_cli setup --clients a --from b  # start a's .env files from b's
   udara_cli setup --notify              # store a Slack bot token
   udara_cli setup --reset               # clear stored CLI settings''';
 
@@ -44,6 +52,10 @@ class SetupCommand extends UdaraCommand {
 
     final reset = argResults!['reset'] as bool;
     final clientsOption = argResults!['clients'] as String?;
+    final from = argResults!['from'] as String?;
+    if (from != null && clientsOption == null) {
+      throw UsageException('--from needs --clients.', usage);
+    }
     final notifyOnly = argResults!['notify'] as bool;
 
     try {
@@ -53,7 +65,7 @@ class SetupCommand extends UdaraCommand {
       }
 
       if (clientsOption != null) {
-        await _handleClientsSetup(clientsOption);
+        await _handleClientsSetup(clientsOption, from: from);
         return;
       }
 
@@ -108,7 +120,7 @@ class SetupCommand extends UdaraCommand {
         'Next step: Run "udara_cli setup --clients <name1,name2>" to initialize clients.');
   }
 
-  Future<void> _handleClientsSetup(String clientsInput) async {
+  Future<void> _handleClientsSetup(String clientsInput, {String? from}) async {
     Logger.phase('🚀 Initializing Client Directories');
 
     final clientNames = clientsInput
@@ -128,6 +140,11 @@ class SetupCommand extends UdaraCommand {
       );
     }
 
+    if (from != null) _checkCopySource(from, clientNames);
+    // The default client may be added below as a fallback; it's only copied
+    // into when it was asked for.
+    final requested = {...clientNames};
+
     if (!clientNames.contains(WhiteLabelService.defaultClientName)) {
       Logger.info(
           'Adding the "default" client, which acts as the runtime fallback.');
@@ -145,6 +162,9 @@ class SetupCommand extends UdaraCommand {
     }
 
     for (final clientName in clientNames) {
+      if (from != null && requested.contains(clientName)) {
+        await _copyEnvFrom(from, clientName);
+      }
       await _createClientStructure(clientsDir.path, clientName);
     }
 
@@ -188,6 +208,75 @@ class SetupCommand extends UdaraCommand {
     Logger.info('  2. Edit each client\'s .env (app name, bundle id, team id)');
     Logger.info(
         '  3. Run "udara_cli doctor" to validate, then "udara_cli build --client <name>"');
+  }
+
+  void _checkCopySource(String from, List<String> clientNames) {
+    if (clientNames.contains(from)) {
+      throw BuildException(
+        'A client can\'t be started from itself ("$from").',
+        fix: 'Pass a different, existing client to --from.',
+      );
+    }
+    if (!File(p.join(clientsDir.path, from, '.env')).existsSync()) {
+      throw BuildException(
+        'Client "$from" has no .env to copy.',
+        fix: 'Pass an existing client with a .env to --from '
+            '(see "udara_cli list-clients").',
+      );
+    }
+  }
+
+  /// Writes the client's missing .env / .env_test from [from]'s, with the
+  /// new client's folder paths and the values in its BRANDING.md (left by
+  /// Udara Onboarding's "Promote to repo"). Existing files are kept.
+  Future<void> _copyEnvFrom(String from, String client) async {
+    final clientDir = Directory(p.join(clientsDir.path, client));
+    await clientDir.create(recursive: true);
+    final brandingFile = File(p.join(clientDir.path, 'BRANDING.md'));
+    final branding = brandingFile.existsSync()
+        ? ClientEnvCopy.brandingFromMarkdown(await brandingFile.readAsString())
+        : const <String, String>{};
+    Logger.info(branding.isEmpty
+        ? '$client: starting .env files from "$from" (no BRANDING.md values).'
+        : '$client: starting .env files from "$from" with '
+            '${branding.length} values from BRANDING.md.');
+
+    for (final name in ['.env', '.env_test']) {
+      final target = File(p.join(clientDir.path, name));
+      final source = File(p.join(clientsDir.path, from, name));
+      if (target.existsSync()) {
+        Logger.info('Skipping existing file: $client/$name');
+        continue;
+      }
+      if (!source.existsSync()) {
+        Logger.info('"$from" has no $name; $client gets the template.');
+        continue;
+      }
+      final result = ClientEnvCopy.copy(
+        source: await source.readAsString(),
+        from: from,
+        to: client,
+        overrides: branding,
+      );
+      await target.writeAsString(result.text);
+      Logger.success('Created: $client/$name (from $from/$name)');
+      if (result.overridden.isNotEmpty || result.added.isNotEmpty) {
+        Logger.info('  From BRANDING.md: '
+            '${[...result.overridden, ...result.added].join(', ')}');
+      }
+      if (result.pathsRewritten.isNotEmpty) {
+        Logger.info('  Paths now under $client: '
+            '${result.pathsRewritten.join(', ')}');
+      }
+      if (result.dropped.isNotEmpty) {
+        Logger.info('  Left out (release signing of $from; put $client\'s in '
+            '.secrets): ${result.dropped.join(', ')}');
+      }
+      if (result.sameAsSource.isNotEmpty) {
+        Logger.warning('  Still the same as $from: '
+            '${result.sameAsSource.join(', ')}. Change them in $client/$name.');
+      }
+    }
   }
 
   Future<void> _handleNotificationSetup() async {

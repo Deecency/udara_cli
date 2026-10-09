@@ -70,6 +70,9 @@ async function requireRoot(ctx: CommandContext): Promise<string | undefined> {
 /** The oldest udara_cli with every option this extension passes. */
 const MIN_CLI_VERSION = '1.3.1';
 
+/** Set Up Clients… "start from an existing client" (setup --from). */
+const FROM_CLI_VERSION = '1.3.2';
+
 async function ensureCli(ctx: CommandContext): Promise<boolean> {
   const listing = await ctx.clients.ensureLoaded();
   const { cliPath } = getConfig();
@@ -676,16 +679,56 @@ async function setupClients(ctx: CommandContext) {
   if (!input) {
     return;
   }
-  const names = input
+  const list = input
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean)
-    .join(',');
-  const code = await runCliTask('setup clients', ['setup', '--clients', names], root);
+    .filter(Boolean);
+  const names = list.join(',');
+
+  // Optionally start the .env files from an existing client (setup --from).
+  const listing = await ctx.clients.ensureLoaded();
+  const sources = listing.clients.filter((c) => c.envFiles.env && !list.includes(c.name));
+  let from: string | undefined;
+  if (sources.length > 0) {
+    const template = { label: 'Template', description: 'placeholder values to fill in' };
+    const picked = await vscode.window.showQuickPick(
+      [
+        template,
+        ...sources.map((c) => ({
+          label: c.name,
+          description: c.appName ?? undefined,
+          detail: 'Copy its .env and .env_test; paths and BRANDING.md values become the new client\'s',
+        })),
+      ],
+      { placeHolder: 'Start the new .env files from…' },
+    );
+    if (!picked) {
+      return;
+    }
+    if (picked !== template) {
+      const version = await cliVersion(root);
+      if (version && compareVersions(version, FROM_CLI_VERSION) < 0) {
+        const choice = await vscode.window.showWarningMessage(
+          `Starting from an existing client needs udara_cli ${FROM_CLI_VERSION} or newer (you have ${version}).`,
+          'Upgrade',
+        );
+        if (choice === 'Upgrade') {
+          await installCli(ctx);
+        }
+        return;
+      }
+      from = picked.label;
+    }
+  }
+
+  const args = ['setup', '--clients', names, ...(from ? ['--from', from] : [])];
+  const code = await runCliTask('setup clients', args, root);
   ctx.clients.refresh();
   if (code === 0) {
     vscode.window.showInformationMessage(
-      `Created clients: ${names}. Replace the placeholder logos and edit each .env.`,
+      from
+        ? `Created clients: ${names}, with .env files from ${from}. Check the values that belong to ${from}.`
+        : `Created clients: ${names}. Replace the placeholder logos and edit each .env.`,
     );
   }
 }

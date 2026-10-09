@@ -88,6 +88,10 @@ class BuildCommand extends UdaraCommand {
   final String name = 'build';
 
   @override
+  String get invocation =>
+      '${runner?.executableName ?? 'udara_cli'} build [options] [-- <flutter build arguments>]';
+
+  @override
   final String description =
       '''Build whitelabeled versions of your Flutter app for one or more clients.
 
@@ -111,6 +115,9 @@ class BuildCommand extends UdaraCommand {
   # Every client's App Bundle
   udara_cli build --all-clients
 
+  # Anything after -- goes to every `flutter build` of the run as is
+  udara_cli build --client apple --type apk -- --target-platform android-arm64
+
 Batches split into jobs of one client on one platform. With --parallel above
 1, jobs run at the same time, each in its own copy of the project under
 ~/.udara_cli/workspaces/, with output in build/udara/logs/. A live progress
@@ -125,6 +132,9 @@ restored afterwards, even when a build fails. Every build is recorded in
   late CleanupService cleanup;
   SlackService? slackService;
 
+  /// Arguments after `--`, appended to every `flutter build` command.
+  List<String> _flutterArgs = const [];
+
   /// Progress for single-job (in-process) runs.
   ProgressTracker? _tracker;
   String? _progressFile;
@@ -138,6 +148,7 @@ restored afterwards, even when a build fails. Every build is recorded in
     cleanup = CleanupService(projectDir: projectDir, config: config);
 
     final isTest = argResults!['test'] as bool;
+    _flutterArgs = argResults!.rest;
     final failFast = argResults!['fail-fast'] as bool;
     _progressFile = argResults!['progress-file'] as String?;
 
@@ -296,6 +307,7 @@ restored afterwards, even when a build fails. Every build is recorded in
         resultFile,
         '--progress-file',
         progressFile,
+        if (_flutterArgs.isNotEmpty) ...['--', ..._flutterArgs],
       ],
     );
 
@@ -688,12 +700,15 @@ restored afterwards, even when a build fails. Every build is recorded in
       final versionArgs = prepared.passVersion
           ? ' ${prepared.version.flutterArgs.join(' ')}'
           : '';
+      final extraArgs = _flutterArgs.isEmpty
+          ? ''
+          : ' ${_flutterArgs.map(shellArgument).join(' ')}';
       await runStep(
           'Building ${target.platform} (${target.type.toUpperCase()})',
           () => runShell(
               // Generated config is compiled in; only dotenv mode needs to
               // tell the app which env file to load.
-              '${target.flutterCommand}${prepared.generatedConfig ? '' : ' --dart-define=CLIENT_ENV=.env'}$versionArgs'));
+              '${target.flutterCommand}${prepared.generatedConfig ? '' : ' --dart-define=CLIENT_ENV=.env'}$versionArgs$extraArgs'));
 
       final artifact = await runStep(
           'Collecting ${target.type.toUpperCase()} artifact',

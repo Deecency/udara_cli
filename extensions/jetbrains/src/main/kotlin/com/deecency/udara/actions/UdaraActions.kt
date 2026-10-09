@@ -386,10 +386,51 @@ class SetupClientsAction : UdaraActionBase(
             UdaraNotifications.warn(project, "Invalid client names", "Use letters, digits, \"_\" and \"-\".")
             return@withRoot
         }
-        UdaraRunner.runCli(project, root, "udara setup clients", listOf("setup", "--clients", names.joinToString(","))) { code ->
-            if (code == 0) UdaraNotifications.info(project, "Created clients: ${names.joinToString(", ")}",
-                "Replace the placeholder logos and edit each .env.")
+        // Optionally start the .env files from an existing client (setup --from).
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val sources = UdaraCli.listClients(root).clients.filter { it.envFile != null && it.name !in names }
+            val version = UdaraCli.cliVersion(root)
+            ApplicationManager.getApplication().invokeLater {
+                if (sources.isEmpty()) return@invokeLater setUp(project, root, names, null)
+                val choices = listOf<ClientInfo?>(null) + sources
+                JBPopupFactory.getInstance()
+                    .createPopupChooserBuilder(choices)
+                    .setTitle("Start the New .env Files From…")
+                    .setRenderer(SimpleListCellRenderer.create<ClientInfo?> { label, value, _ ->
+                        label.text = value?.let { it.name + if (it.summary.isNotEmpty()) "   ${it.summary}" else "" }
+                            ?: "Template (placeholder values to fill in)"
+                    })
+                    .setItemChosenCallback { from ->
+                        if (from != null && version != null && !UdaraCli.isAtLeast(version, FROM_CLI_VERSION)) {
+                            UdaraNotifications.warn(
+                                project, "udara_cli $FROM_CLI_VERSION needed",
+                                "Starting from an existing client needs udara_cli $FROM_CLI_VERSION or newer " +
+                                    "(you have $version). Run: dart pub global activate udara_cli",
+                            )
+                        } else {
+                            setUp(project, root, names, from?.name)
+                        }
+                    }
+                    .createPopup()
+                    .showCenteredInCurrentWindow(project)
+            }
+        }
+    }
+
+    private fun setUp(project: Project, root: File, names: List<String>, from: String?) {
+        val args = listOf("setup", "--clients", names.joinToString(",")) + (from?.let { listOf("--from", it) } ?: emptyList())
+        UdaraRunner.runCli(project, root, "udara setup clients", args) { code ->
+            if (code == 0) UdaraNotifications.info(
+                project, "Created clients: ${names.joinToString(", ")}",
+                if (from != null) "The .env files start from $from: check the values that belong to $from."
+                else "Replace the placeholder logos and edit each .env.",
+            )
             refreshPanel(project)
         }
+    }
+
+    private companion object {
+        /** "Start from an existing client" (setup --from). */
+        const val FROM_CLI_VERSION = "1.3.2"
     }
 }
