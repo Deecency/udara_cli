@@ -74,6 +74,15 @@ class BuildCommand extends UdaraCommand {
         defaultsTo: '#builds',
       )
       ..addOption(
+        'ref',
+        valueHelp: 'branch|tag|commit',
+        help: 'Build this git branch, tag or commit instead of the working '
+            'copy, in a private copy of the project, so you can stay on your '
+            'branch and keep working. A branch is built as it is on the '
+            'remote. Local-only files (client .env/.secrets, keystores and '
+            'other git-ignored files) come from the working copy.',
+      )
+      ..addOption(
         'progress-file',
         valueHelp: 'path',
         help: 'Keep a JSON progress snapshot (percent, ETA, per-build state) '
@@ -81,7 +90,10 @@ class BuildCommand extends UdaraCommand {
       )
       // Internal: used by parallel builds to run one job in a worker process.
       ..addOption('result-file', hide: true)
-      ..addFlag('no-history', negatable: false, hide: true);
+      ..addFlag('no-history', negatable: false, hide: true)
+      // Internal: --ref workers regenerate code the working copy's branch
+      // generated.
+      ..addFlag('codegen', negatable: false, hide: true);
   }
 
   @override
@@ -115,6 +127,9 @@ class BuildCommand extends UdaraCommand {
   # Every client's App Bundle
   udara_cli build --all-clients
 
+  # Release from the stable branch while working on another one
+  udara_cli build --client apple,google --platform android,ios --ref stable
+
   # Anything after -- goes to every `flutter build` of the run as is
   udara_cli build --client apple --type apk -- --target-platform android-arm64
 
@@ -122,6 +137,10 @@ Batches split into jobs of one client on one platform. With --parallel above
 1, jobs run at the same time, each in its own copy of the project under
 ~/.udara_cli/workspaces/, with output in build/udara/logs/. A live progress
 view shows percent and ETA, estimated from your build history.
+
+With --ref, every job runs in such a copy, filled from that branch, tag or
+commit instead of the working copy; your branch and uncommitted changes are
+left alone.
 
 Artifacts are collected in build/udara/<client>/. The project is always
 restored afterwards, even when a build fails. Every build is recorded in
@@ -134,6 +153,9 @@ restored afterwards, even when a build fails. Every build is recorded in
 
   /// Arguments after `--`, appended to every `flutter build` command.
   List<String> _flutterArgs = const [];
+
+  /// The ref being built instead of the working copy (--ref).
+  RefSource? _source;
 
   /// Progress for single-job (in-process) runs.
   ProgressTracker? _tracker;
@@ -176,8 +198,15 @@ restored afterwards, even when a build fails. Every build is recorded in
     final estimator = DurationEstimator(await config.loadBuildHistory());
     final runStart = DateTime.now();
 
+    final ref = argResults!['ref'] as String?;
+    if (ref != null && ref.trim().isNotEmpty) {
+      _source = await _prepareRef(ref.trim());
+    }
+
     final List<TargetResult> results;
-    if (jobs.length == 1) {
+    // A ref is always built in a workspace, so even one job goes through
+    // the batch runner.
+    if (jobs.length == 1 && _source == null) {
       results = await _runSingleJob(jobs.single, estimator,
           isTest: isTest,
           failFast: failFast,
@@ -219,6 +248,27 @@ restored afterwards, even when a build fails. Every build is recorded in
     );
   }
 
+  Future<RefSource> _prepareRef(String ref) async {
+    Logger.phase('Source: $ref');
+    final workspaces = WorkspaceManager(projectDir);
+    final reason = workspaces.unsupportedReason();
+    if (reason != null) {
+      throw BuildException(
+          '--ref builds in a separate copy of the project, and $reason.',
+          fix: 'Switch to "$ref" and build without --ref.');
+    }
+    final source = await runStep(
+        'Fetching and exporting "$ref"',
+        () => RefSource.prepare(
+            projectDir: projectDir, ref: ref, stagingRoot: workspaces.root));
+    for (final note in source.notes) {
+      Logger.info(note);
+    }
+    Logger.success('Building ${source.label}. Your working copy is not used '
+        'or changed.');
+    return source;
+  }
+
   int _resolveParallel(String value) {
     if (value == 'auto') return BatchRunner.autoParallel();
     final n = int.tryParse(value);
@@ -245,7 +295,7 @@ restored afterwards, even when a build fails. Every build is recorded in
   }) async {
     var slots = parallel.clamp(1, jobs.length);
     final workspaces = WorkspaceManager(projectDir);
-    if (slots > 1) {
+    if (slots > 1 && _source == null) {
       final reason = workspaces.unsupportedReason();
       if (reason != null) {
         Logger.warning('Building one at a time: $reason, which isolated '
@@ -253,13 +303,16 @@ restored afterwards, even when a build fails. Every build is recorded in
         slots = 1;
       }
     }
-    final useWorkspaces = slots > 1;
+    final useWorkspaces = slots > 1 || _source != null;
 
     // Parallel jobs run in copies; make sure the project itself is clean.
-    await recoverInterruptedRun(cleanup);
+    // A ref build never uses the project, so it stays as it is, branded
+    // for Run Client included.
+    if (_source == null) await recoverInterruptedRun(cleanup);
 
     Logger.phase('Batch Build');
-    Logger.info('${plan.size} builds in ${jobs.length} jobs '
+    Logger.info(
+        '${_count(plan.size, 'build')} in ${_count(jobs.length, 'job')} '
         '(one client on one platform each), '
         '${slots == 1 ? 'one at a time' : '$slots at a time'}.');
     for (final job in jobs) {
@@ -267,6 +320,7 @@ restored afterwards, even when a build fails. Every build is recorded in
       Logger.info('• ${job.label} (${job.types})'
           '${version != null ? ' · v$version' : ''}');
     }
+    if (_source != null) Logger.info('Source: ${_source!.label}');
     if (useWorkspaces) {
       Logger.info('Workspaces: ${workspaces.root.path}');
     }
@@ -284,6 +338,7 @@ restored afterwards, even when a build fails. Every build is recorded in
       useWorkspaces: useWorkspaces,
       failFast: failFast,
       progressFile: _progressFile,
+      source: _source,
       workerArgs: (job, resultFile, progressFile) => [
         if (Logger.verbose) '--verbose',
         'build',
@@ -303,6 +358,7 @@ restored afterwards, even when a build fails. Every build is recorded in
           argResults!['slack-channel'] as String,
         ],
         '--no-history',
+        if (_source != null) '--codegen',
         '--result-file',
         resultFile,
         '--progress-file',
@@ -328,6 +384,8 @@ restored afterwards, even when a build fails. Every build is recorded in
         duration: r.duration,
         errorMessage: r.error,
         artifactPath: r.artifact,
+        ref: _source?.resolvedRef,
+        commit: _source?.commit,
       );
     }
     return results;
@@ -653,6 +711,14 @@ restored afterwards, even when a build fails. Every build is recorded in
     await runStep(
         'Resolving dependencies (pub get)', () => runShell('flutter pub get'));
 
+    if (argResults!['codegen'] as bool && await _usesBuildRunner()) {
+      _setStep('Generating code');
+      await runStep(
+          'Generating code (build_runner)',
+          () => runShell(
+              'dart run build_runner build --delete-conflicting-outputs'));
+    }
+
     _setStep('Applying bundle id, name, icons and splash');
     await runStep(
         'Updating Bundle ID ($bundleId)',
@@ -880,6 +946,18 @@ restored afterwards, even when a build fails. Every build is recorded in
     Logger.info('$succeeded succeeded, $failed failed'
         '${skipped > 0 ? ', $skipped skipped' : ''} '
         'in ${formatDuration(total)}. Artifacts: build/udara/');
+  }
+
+  static String _count(int n, String noun) => '$n $noun${n == 1 ? '' : 's'}';
+
+  Future<bool> _usesBuildRunner() async {
+    try {
+      final pubspec =
+          await File(p.join(projectDir, 'pubspec.yaml')).readAsString();
+      return RegExp(r'^\s+build_runner\s*:', multiLine: true).hasMatch(pubspec);
+    } catch (_) {
+      return false;
+    }
   }
 
   String? _firstNonEmpty(List<String?> values) {

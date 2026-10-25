@@ -39,8 +39,9 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
   the run dropdown, you can also just pick `Udara: acme` there next time.
   Without the Flutter plugin, the app runs in the Run tool window instead
   (type `r`, `R` or `q` and press Enter for reload, restart or quit).
-- **Build Client…** opens a dialog for platform, Android build type, an
-  optional **app version**, test env and Slack, runs `udara_cli build`, and
+- **Build Client…** opens a dialog for what to **build from** (the working
+  copy or another branch), platform, Android build type, an optional **app
+  version**, test env and Slack, runs `udara_cli build`, and
   notifies you with a *Reveal Artifact* link. The version (e.g. `1.4.0+12`) is
   passed to the CLI; `pubspec.yaml` is not edited.
 - **Build Multiple Clients…** opens a table of clients with a checkbox and
@@ -49,6 +50,11 @@ From the JetBrains Marketplace: https://plugins.jetbrains.com/plugin/34541-udara
   env, fail-fast and Slack, then runs them as one `udara_cli build` batch.
   The notification reports how many succeeded and opens `build/udara/` or the
   per-job logs.
+- **Build from another branch:** pick e.g. `stable` under "Build from" to
+  release it while you work on `dev`, without switching branches (udara_cli
+  1.3.3+, `build --ref`). It's built as it is on the remote, in a separate
+  copy of the project, so your branch, uncommitted changes and Run Client
+  branding stay as they are.
 - **Progress:** builds open the Udara tool window with a progress bar showing
   percent, ETA and each running job's step. Stop the build from the Run tool
   window to cancel every job.

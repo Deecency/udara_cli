@@ -7,6 +7,7 @@ import { HistoryItem, HistoryTreeProvider } from './historyTree';
 import { newProgressFile, withBuildProgress } from './buildProgress';
 import { readPubspecVersion, VERSION_PATTERN, writePubspecVersion } from './pubspecVersion';
 import { buildCommandLine, runCliTask, runInTerminal } from './runner';
+import { listBranches, pubspecVersionAt } from './gitBranches';
 
 /** workspaceState key holding the version to put back if VS Code closes mid-build. */
 export const PENDING_VERSION_KEY = 'udara.pendingVersionRestore';
@@ -72,6 +73,9 @@ const MIN_CLI_VERSION = '1.3.1';
 
 /** Set Up Clients… "start from an existing client" (setup --from). */
 const FROM_CLI_VERSION = '1.3.2';
+
+/** Building another branch than the checked-out one (build --ref). */
+const REF_CLI_VERSION = '1.3.3';
 
 async function ensureCli(ctx: CommandContext): Promise<boolean> {
   const listing = await ctx.clients.ensureLoaded();
@@ -327,7 +331,17 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     return;
   }
 
-  const version = await askVersion(root, title, `App version for "${client.name}" (optional)`);
+  const ref = await askBranch(ctx, root, title);
+  if (ref === undefined) {
+    return;
+  }
+
+  const version = await askVersion(
+    root,
+    title,
+    `App version for "${client.name}" (optional)`,
+    ref ? await pubspecVersionAt(root, ref) : readPubspecVersion(root),
+  );
   if (version === undefined) {
     return; // Escape cancels the build.
   }
@@ -341,8 +355,11 @@ async function buildClient(ctx: CommandContext, node: ClientItem | undefined) {
     ...(type ? ['--type', type] : []),
     ...(env.isTest ? ['--test'] : []),
     ...(version ? ['--build-version', version] : []),
+    ...(ref ? ['--ref', ref] : []),
   ];
-  const label = `build ${client.name} ${platform.value}${type ? ` ${type}` : ''}${version ? ` v${version}` : ''}`;
+  const label = `build ${client.name} ${platform.value}${type ? ` ${type}` : ''}${version ? ` v${version}` : ''}${
+    ref ? ` from ${ref}` : ''
+  }`;
   const code = await runTrackedBuild(root, label, `Building ${client.name}`, args);
   ctx.history.refresh();
   ctx.clients.refresh();
@@ -424,7 +441,17 @@ async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) 
     types = picked.map((t) => t.value);
   }
 
-  const versions = await askBatchVersions(root, title, clients.map((c) => c.label));
+  const ref = await askBranch(ctx, root, title);
+  if (ref === undefined) {
+    return;
+  }
+
+  const versions = await askBatchVersions(
+    root,
+    title,
+    clients.map((c) => c.label),
+    ref ? await pubspecVersionAt(root, ref) : readPubspecVersion(root),
+  );
   if (versions === undefined) {
     return;
   }
@@ -474,10 +501,11 @@ async function buildMultiple(ctx: CommandContext, node: ClientItem | undefined) 
     '--parallel',
     parallel,
     ...options.map((o) => o.value),
+    ...(ref ? ['--ref', ref] : []),
   ];
   const buildCount =
     clients.length * (types.length + (platforms.some((p) => p.value === 'ios') ? 1 : 0));
-  const label = `batch build (${buildCount} builds)`;
+  const label = `batch build (${buildCount} builds)${ref ? ` from ${ref}` : ''}`;
 
   // History timestamps are local ISO strings without a zone; Date parses them as local.
   const startedAt = Date.now() - 1000;
@@ -534,11 +562,63 @@ async function runTrackedBuild(
 }
 
 /**
+ * Asks what to build: the working copy, as always, or another branch, which
+ * the CLI builds in a separate copy of the project (--ref) so the project
+ * stays on its branch with its changes. Returns undefined when cancelled,
+ * '' for the working copy (also outside git), or the branch.
+ */
+async function askBranch(ctx: CommandContext, root: string, title: string): Promise<string | undefined> {
+  const { current, choices } = await listBranches(root);
+  if (choices.length === 0) {
+    return '';
+  }
+  const picked = await vscode.window.showQuickPick(
+    [
+      {
+        label: '$(edit) Working copy',
+        description: `${current ? `${current}, ` : ''}as it is now, uncommitted changes included`,
+        ref: '',
+      },
+      ...choices.map((c) => ({
+        label: `$(git-branch) ${c.ref}`,
+        description: c.kind === 'remote' ? 'remote branch' : 'branch, as on the remote',
+        ref: c.ref,
+      })),
+    ],
+    {
+      title,
+      placeHolder: 'Build from. Another branch is built in a separate copy; your project is left as it is.',
+    },
+  );
+  if (!picked) {
+    return undefined;
+  }
+  if (picked.ref) {
+    const version = await cliVersion(root);
+    if (version && compareVersions(version, REF_CLI_VERSION) < 0) {
+      const choice = await vscode.window.showWarningMessage(
+        `Building another branch needs udara_cli ${REF_CLI_VERSION} or newer (you have ${version}).`,
+        'Upgrade',
+      );
+      if (choice === 'Upgrade') {
+        await installCli(ctx);
+      }
+      return undefined;
+    }
+  }
+  return picked.ref;
+}
+
+/**
  * Asks for an optional version. Returns undefined when cancelled, '' to keep
  * the pubspec version, or the version to pass to --build-version.
  */
-async function askVersion(root: string, title: string, prompt: string): Promise<string | undefined> {
-  const currentVersion = readPubspecVersion(root);
+async function askVersion(
+  root: string,
+  title: string,
+  prompt: string,
+  currentVersion = readPubspecVersion(root),
+): Promise<string | undefined> {
   const input = await vscode.window.showInputBox({
     title,
     prompt: `${prompt}. Leave empty to keep the pubspec version. Without +build number, the current one is kept.`,
@@ -557,8 +637,8 @@ async function askBatchVersions(
   root: string,
   title: string,
   clients: string[],
+  current = readPubspecVersion(root),
 ): Promise<string[] | undefined> {
-  const current = readPubspecVersion(root);
   const mode = await vscode.window.showQuickPick(
     [
       { label: 'Keep the pubspec version', description: current ? `v${current} for every client` : '', value: 'keep' },
@@ -574,12 +654,12 @@ async function askBatchVersions(
     return [];
   }
   if (mode.value === 'same') {
-    const v = await askVersion(root, title, 'App version for every client');
+    const v = await askVersion(root, title, 'App version for every client', current);
     return v === undefined ? undefined : v ? [v] : [];
   }
   const values: string[] = [];
   for (const client of clients) {
-    const v = await askVersion(root, `${title}: ${client}`, `App version for "${client}"`);
+    const v = await askVersion(root, `${title}: ${client}`, `App version for "${client}"`, current);
     if (v === undefined) {
       return undefined;
     }

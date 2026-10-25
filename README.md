@@ -205,6 +205,7 @@ udara_cli build --client clientA --platform ios                   # IPA
 udara_cli build --client clientA --type apk --test                # APK with .env_test
 udara_cli build --client clientA,clientB --platform android,ios --type aab,apk
 udara_cli build --all-clients --build-version 2.1.0+45
+udara_cli build --client clientA,clientB --platform android,ios --ref stable   # from another branch
 ```
 
 | Option | |
@@ -215,6 +216,7 @@ udara_cli build --all-clients --build-version 2.1.0+45
 | `--type`, `-t` | `aab` (default), `apk`, or both. iOS always builds an IPA |
 | `--build-version` | For all clients (`1.4.0+12`) or per client (`clientA=1.4.0+12,clientB=2.0.0`); without `+n` the pubspec build number is kept. pubspec.yaml isn't edited |
 | `--parallel`, `-j` | Jobs at the same time: `auto` (default, 1-4 from RAM/CPU) or a number |
+| `--ref` | Build this branch, tag or commit instead of the working copy, without switching to it ([below](#building-another-branch---ref)) |
 | `--test` | Use `.env_test` (and `.secrets_test`) |
 | `--fail-fast` | Stop at the first failure |
 | `--slack`, `--slack-channel` | Slack notifications (default channel `#builds`) |
@@ -236,6 +238,21 @@ A batch is split into **jobs of one client on one platform** (AAB and APK share 
 - Ctrl+C or an IDE stop button stops every job and every Flutter/Gradle/Xcode process, and keeps finished artifacts.
 
 > On a fresh machine, run one build first so Gradle and CocoaPods download their caches once, instead of every parallel job waiting on the same download.
+
+### Building another branch (`--ref`)
+
+To release from `stable` while you work on `dev`, build it without switching branches:
+
+```bash
+udara_cli build --client clientA,clientB --platform android,ios --ref stable
+```
+
+Every job runs in a private copy of the project under `~/.udara_cli/workspaces/` (one set per ref, so each keeps its build caches). Your working copy, its branch, its uncommitted changes and a client branded with `whitelabel --keep` are left exactly as they are, so you can keep coding and running the app while it builds. Artifacts land in your `build/udara/<client>/` as usual, and `history` shows which branch and commit each came from.
+
+- **The ref's code**: committed files come from the ref. A branch is fetched first and built as it is on the remote: when your local `stable` is behind `origin/stable`, `origin/stable` is built; with unpushed commits, your local branch; if the two have diverged, the build stops and asks you to pull. Tags and commit hashes work too.
+- **Your local-only files**: everything git ignores in your working copy comes along, such as client `.env`/`.env_test`/`.secrets`, keystores, `key.properties`, Firebase configs and an ignored `pubspec.lock`. Files the ref has itself are never replaced.
+- **Generated code is regenerated**: ignored generated Dart files (`*.g.dart`, `*.freezed.dart`, …) belong to your branch, so they're left out, and when the project uses `build_runner`, the build runs it for the ref after `pub get`. Generated localizations are rebuilt by `pub get`.
+- Git submodules aren't included, and the project can't be a pub workspace member.
 
 ## Running a Client Locally (`whitelabel`)
 
@@ -285,7 +302,7 @@ udara_cli diff --client-a clientA --client-b clientB [--test] [--all]
 
 ```bash
 udara_cli setup [--clients a,b] [--notify] [--reset]
-udara_cli build --client <name> [options]          # see Building
+udara_cli build --client <name> [options]          # see Building (--ref: another branch)
 udara_cli whitelabel --client <name> [--test] [--keep]
 udara_cli migrate-config [--apply] [--include-detected] [--force]
 udara_cli generate-config [--client <name>] [--test]  # refresh lib/udara_config.g.dart

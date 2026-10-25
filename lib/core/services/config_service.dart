@@ -644,6 +644,8 @@ class ConfigService {
     required Duration duration,
     String? errorMessage,
     String? artifactPath,
+    String? ref,
+    String? commit,
   }) async {
     final entry = {
       'timestamp': DateTime.now().toIso8601String(),
@@ -655,6 +657,8 @@ class ConfigService {
       'durationSeconds': duration.inSeconds,
       if (errorMessage != null) 'error': errorMessage,
       if (artifactPath != null) 'artifact': artifactPath,
+      if (ref != null) 'ref': ref,
+      if (commit != null) 'commit': commit,
     };
 
     try {
