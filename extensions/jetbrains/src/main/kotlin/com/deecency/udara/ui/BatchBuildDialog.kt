@@ -1,6 +1,7 @@
 package com.deecency.udara.ui
 
 import com.deecency.udara.cli.ClientInfo
+import com.deecency.udara.cli.GitBranches
 import com.deecency.udara.cli.PubspecVersion
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
@@ -27,8 +28,10 @@ class BatchBuildDialog(
     project: Project,
     clients: List<ClientInfo>,
     preselected: String?,
-    private val currentVersion: String?,
+    currentVersion: String?,
+    branches: GitBranches.Listing,
 ) : DialogWrapper(project) {
+    private val branchField = BranchField(branches, currentVersion)
 
     private class Row(val client: ClientInfo, var selected: Boolean, var version: String)
 
@@ -67,9 +70,15 @@ class BatchBuildDialog(
         columnModel.getColumn(3).preferredWidth = JBUI.scale(130)
         emptyText.text = "No clients"
     }
-    private val sameVersionField = JBTextField().apply {
-        emptyText.text = currentVersion?.let { "e.g. 1.4.0+12 (pubspec: $it)" } ?: "e.g. 1.4.0+12"
-        columns = 14
+    private val sameVersionField = JBTextField().apply { columns = 14 }
+    private val versionHelp = JBLabel().apply { foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND }
+
+    /** Version hints for what is being built: the working copy's or the branch's pubspec. */
+    private fun showPubspecVersion(version: String?) {
+        sameVersionField.emptyText.text = version?.let { "e.g. 1.4.0+12 (pubspec: $it)" } ?: "e.g. 1.4.0+12"
+        sameVersionField.repaint()
+        versionHelp.text = "Empty version keeps the pubspec version${version?.let { " ($it)" } ?: ""}. " +
+            "Without +build number the pubspec one is kept."
     }
     private val androidBox = JBCheckBox("Android", true)
     private val iosBox = JBCheckBox("iOS")
@@ -90,6 +99,8 @@ class BatchBuildDialog(
         }
         slackBox.addChangeListener { channelField.isEnabled = slackBox.isSelected }
         channelField.isEnabled = false
+        showPubspecVersion(currentVersion)
+        branchField.onChange { showPubspecVersion(branchField.pubspecVersion) }
         init()
     }
 
@@ -111,15 +122,11 @@ class BatchBuildDialog(
         val scroll = JBScrollPane(table).apply { preferredSize = JBUI.size(520, 200) }
 
         return FormBuilder.createFormBuilder()
+            .apply { if (branchField.hasChoices) addLabeledComponent("Build from:", branchField.component) }
             .addLabeledComponent("Clients:", scroll, true)
             .addComponent(row(selectAll, selectNone))
             .addLabeledComponent("Same version for selected:", row(sameVersionField, applyVersion))
-            .addComponent(
-                JBLabel("Empty version keeps the pubspec version${currentVersion?.let { " ($it)" } ?: ""}. " +
-                    "Without +build number the pubspec one is kept.").apply {
-                    foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
-                },
-            )
+            .addComponent(versionHelp)
             .addLabeledComponent("Platforms:", row(androidBox, iosBox))
             .addLabeledComponent("Android types:", row(aabBox, apkBox))
             .addLabeledComponent("Build at the same time:", parallelBox)
@@ -142,6 +149,9 @@ class BatchBuildDialog(
 
     private val androidTypes: List<String>
         get() = listOfNotNull("aab".takeIf { aabBox.isSelected }, "apk".takeIf { apkBox.isSelected })
+
+    /** The branch to build (--ref), or null for the working copy. */
+    val ref: String? get() = branchField.ref
 
     /** Number of artifacts the batch will try to produce. */
     val buildCount: Int
@@ -175,6 +185,7 @@ class BatchBuildDialog(
             args += "--slack"
             channelField.text.trim().takeIf { it.isNotEmpty() }?.let { args += listOf("--slack-channel", it) }
         }
+        branchField.ref?.let { args += listOf("--ref", it) }
         return args
     }
 }

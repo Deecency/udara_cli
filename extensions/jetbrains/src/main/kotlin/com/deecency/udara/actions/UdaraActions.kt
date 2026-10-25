@@ -1,6 +1,7 @@
 package com.deecency.udara.actions
 
 import com.deecency.udara.cli.ClientInfo
+import com.deecency.udara.cli.GitBranches
 import com.deecency.udara.cli.PubspecVersion
 import com.deecency.udara.run.FlutterRunConfigs
 import com.deecency.udara.cli.UdaraCli
@@ -58,6 +59,44 @@ abstract class UdaraActionBase(text: String, description: String?, icon: Icon?) 
 
     protected fun refreshPanel(project: Project) {
         UdaraPanel.forProject(project)?.scheduleRefresh()
+    }
+
+    /**
+     * Checks the installed CLI is new enough and loads the branches the build
+     * dialogs offer (off the UI thread), then runs [then] on the UI thread.
+     */
+    protected fun withBuildContext(
+        project: Project,
+        root: File,
+        then: (cliVersion: String?, branches: GitBranches.Listing) -> Unit,
+    ) {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val version = UdaraCli.cliVersion(root)
+            val branches = GitBranches.load(root)
+            ApplicationManager.getApplication().invokeLater({
+                if (version != null && !UdaraCli.isAtLeast(version, UdaraCli.MIN_CLI_VERSION)) {
+                    UdaraNotifications.cliTooOld(project, version)
+                } else {
+                    then(version, branches)
+                }
+            }, project.disposed)
+        }
+    }
+
+    /** False (with a notification) when a branch was chosen and the CLI can't build one (build --ref). */
+    protected fun canBuildRef(project: Project, ref: String?, cliVersion: String?): Boolean {
+        if (ref == null || cliVersion == null || UdaraCli.isAtLeast(cliVersion, REF_CLI_VERSION)) return true
+        UdaraNotifications.warn(
+            project, "udara_cli $REF_CLI_VERSION needed",
+            "Building another branch needs udara_cli $REF_CLI_VERSION or newer " +
+                "(you have $cliVersion). Run: dart pub global activate udara_cli",
+        )
+        return false
+    }
+
+    protected companion object {
+        /** Building another branch than the checked-out one (build --ref). */
+        const val REF_CLI_VERSION = "1.3.3"
     }
 
     /** Checks the installed CLI is new enough (off the UI thread), then runs [then] on the UI thread. */
@@ -171,14 +210,15 @@ class BuildClientAction : UdaraActionBase(
 ) {
     override fun actionPerformed(e: AnActionEvent) =
         withClient(e, "Build which client?") { project, root, client ->
-            requireCliVersion(project, root) {
-                val dialog = BuildDialog(project, client.name, PubspecVersion.read(root))
-                if (!dialog.showAndGet()) return@requireCliVersion
+            withBuildContext(project, root) { cliVersion, branches ->
+                val dialog = BuildDialog(project, client.name, PubspecVersion.read(root), branches)
+                if (!dialog.showAndGet() || !canBuildRef(project, dialog.ref, cliVersion)) return@withBuildContext
                 val version = dialog.version?.let { " v$it" } ?: ""
+                val from = dialog.ref?.let { " from $it" } ?: ""
                 TrackedBuild.run(
                     project, root,
-                    title = "udara build ${client.name} ${dialog.platform}$version",
-                    label = "Building ${client.name} (${dialog.platform})$version",
+                    title = "udara build ${client.name} ${dialog.platform}$version$from",
+                    label = "Building ${client.name} (${dialog.platform})$version$from",
                     args = dialog.cliArgs(),
                 ) { code ->
                     if (code == TrackedBuild.CANCELLED) {
@@ -203,6 +243,7 @@ class BuildMultipleAction : UdaraActionBase(
         ApplicationManager.getApplication().executeOnPooledThread {
             val clients = UdaraCli.listClients(root).clients
             val version = UdaraCli.cliVersion(root)
+            val branches = GitBranches.load(root)
             ApplicationManager.getApplication().invokeLater({
                 if (version != null && !UdaraCli.isAtLeast(version, UdaraCli.MIN_CLI_VERSION)) {
                     UdaraNotifications.cliTooOld(project, version)
@@ -212,14 +253,14 @@ class BuildMultipleAction : UdaraActionBase(
                     UdaraNotifications.warn(project, "No clients found", "Use Set Up Clients… to create some.")
                     return@invokeLater
                 }
-                val dialog = BatchBuildDialog(project, clients, preselected, PubspecVersion.read(root))
-                if (!dialog.showAndGet()) return@invokeLater
+                val dialog = BatchBuildDialog(project, clients, preselected, PubspecVersion.read(root), branches)
+                if (!dialog.showAndGet() || !canBuildRef(project, dialog.ref, version)) return@invokeLater
 
                 // History timestamps are local time without a zone, like LocalDateTime.
                 val startedAt = LocalDateTime.now().minusSeconds(1)
                 TrackedBuild.run(
                     project, root,
-                    title = "udara batch build (${dialog.buildCount} builds)",
+                    title = "udara batch build (${dialog.buildCount} builds)${dialog.ref?.let { " from $it" } ?: ""}",
                     label = "Building ${dialog.buildCount} builds",
                     args = dialog.cliArgs(),
                 ) { code ->

@@ -40,9 +40,10 @@ the Flutter device selector. Without the Flutter extension, or with
 instead. The status bar shows which client the project is currently branded
 as.
 
-**Build Client…** asks for platform, Android build type, environment and an
-optional **app version**, runs `udara_cli build`, and offers to reveal the
-artifact when it finishes. The version (e.g. `1.4.0+12`) is passed to the CLI;
+**Build Client…** asks for platform, Android build type, environment, what to
+**build from** (the working copy or another branch) and an optional **app
+version**, runs `udara_cli build`, and offers to reveal the artifact when it
+finishes. The version (e.g. `1.4.0+12`) is passed to the CLI;
 `pubspec.yaml` is not edited. `1.4.0` without a build number keeps the
 current one.
 
@@ -51,6 +52,12 @@ AAB and/or APK, the version (keep pubspec, one for all, or **one per
 client**), how many to **build in parallel** (Auto or 1-4), test env and
 fail-fast, then runs them as one `udara_cli build` batch. It reports how many
 builds succeeded and opens `build/udara/` or the per-job logs.
+
+**Building another branch:** pick e.g. `stable` under "Build from" to release
+it while you work on `dev`, without switching branches (udara_cli 1.3.3+,
+`build --ref`). It's built as it is on the remote, in a separate copy of the
+project, so your branch, uncommitted changes and Run Client branding stay as
+they are.
 
 ![Build Multiple Clients: pick the clients to build](https://raw.githubusercontent.com/Deecency/udara_cli/main/extensions/screenshots/vscode/02-build-multiple-pick.png)
 

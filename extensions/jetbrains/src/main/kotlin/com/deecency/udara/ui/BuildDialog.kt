@@ -1,5 +1,6 @@
 package com.deecency.udara.ui
 
+import com.deecency.udara.cli.GitBranches
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
@@ -13,7 +14,9 @@ class BuildDialog(
     project: Project,
     private val clientName: String,
     currentVersion: String?,
+    branches: GitBranches.Listing,
 ) : DialogWrapper(project) {
+    private val branchField = BranchField(branches, currentVersion)
     private val platformBox = ComboBox(arrayOf("android", "ios"))
     private val typeBox = ComboBox(arrayOf("aab", "apk"))
     private val versionField = VersionField(currentVersion)
@@ -27,11 +30,13 @@ class BuildDialog(
         platformBox.addActionListener { typeBox.isEnabled = platformBox.selectedItem == "android" }
         slackBox.addChangeListener { channelField.isEnabled = slackBox.isSelected }
         channelField.isEnabled = false
+        branchField.onChange { versionField.currentVersion = branchField.pubspecVersion }
         init()
     }
 
     override fun createCenterPanel(): JComponent =
         FormBuilder.createFormBuilder()
+            .apply { if (branchField.hasChoices) addLabeledComponent("Build from:", branchField.component) }
             .addLabeledComponent("Platform:", platformBox)
             .addLabeledComponent("Android build type:", typeBox)
             .addLabeledComponent("App version (optional):", versionField.component)
@@ -41,6 +46,9 @@ class BuildDialog(
             .panel
 
     val platform: String get() = platformBox.selectedItem as String
+
+    /** The branch to build (--ref), or null for the working copy. */
+    val ref: String? get() = branchField.ref
 
     /** The requested version, or null to keep the pubspec version. */
     val version: String? get() = versionField.requested
@@ -56,6 +64,7 @@ class BuildDialog(
             args += "--slack"
             channelField.text.trim().takeIf { it.isNotEmpty() }?.let { args += listOf("--slack-channel", it) }
         }
+        branchField.ref?.let { args += listOf("--ref", it) }
         return args
     }
 }

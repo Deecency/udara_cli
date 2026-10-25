@@ -1,3 +1,10 @@
+## 1.3.3
+
+* **NEW**:
+
+- `udara_cli build ... --ref <branch|tag|commit>` builds another branch than the one checked out, e.g. releasing from `stable` while working on `dev`, without switching branches or touching the working copy (uncommitted changes and a `whitelabel --keep` client stay as they are). Each job runs in a private workspace per ref under `~/.udara_cli/workspaces/`, filled from the ref's committed files plus the working copy's git-ignored local files (client `.env`/`.secrets`, keystores, Firebase configs), leaving out generated code, which `build_runner` regenerates for the ref. A branch is fetched and built as it is on the remote; a local branch with unpushed commits is built as it is, and diverged branches stop the build. Build history records the ref and commit, and `history` shows them.
+- The IDE extensions (0.4.0) ask which branch to build from in Build Client and Build Multiple Clients.
+
 ## 1.3.2
 
 * **NEW**:

@@ -112,8 +112,14 @@ Each build (success or failure) is automatically recorded to
     final formattedTime =
         timestamp != null ? _formatTimestamp(timestamp) : 'unknown time';
 
-    final summary =
-        '$client • $platform/$type • v$version • ${durationSeconds}s • $formattedTime';
+    // Builds made with --ref say which branch and commit they came from.
+    final ref = entry['ref'] as String?;
+    final commit = entry['commit'] as String?;
+    final source = ref == null
+        ? ''
+        : ' • $ref${commit == null ? '' : '@${commit.substring(0, commit.length.clamp(0, 7))}'}';
+    final summary = '$client • $platform/$type • v$version$source • '
+        '${durationSeconds}s • $formattedTime';
 
     if (success) {
       Logger.success(summary);

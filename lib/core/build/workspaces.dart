@@ -5,6 +5,7 @@ import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
 import '../exceptions.dart';
+import 'ref_source.dart';
 
 /// A private copy of the project that one parallel build runs in.
 class Workspace {
@@ -85,17 +86,27 @@ class WorkspaceManager {
   }
 
   /// Locks a free workspace for [platform] (creating one if needed) and
-  /// syncs the project into it.
-  Future<Workspace> acquire(String platform) async {
-    root.createSync(recursive: true);
+  /// syncs the project into it, or, with [source], that ref's files. Each
+  /// ref has workspaces of its own, so switching between building it and
+  /// the working copy doesn't throw away either's build caches.
+  Future<Workspace> acquire(String platform, {RefSource? source}) async {
+    final pool = source == null
+        ? root
+        : Directory(p.join(root.path, RefSource.poolName(source.ref)));
+    pool.createSync(recursive: true);
     for (var n = 1;; n++) {
-      final dir = Directory(p.join(root.path, '$platform-$n'));
+      final dir = Directory(p.join(pool.path, '$platform-$n'));
       dir.createSync(recursive: true);
       final lock = File(p.join(dir.path, _lockName));
       if (_tryLock(lock)) {
         final ws = Workspace(dir, lock);
         try {
-          await sync(Directory(projectDir), dir);
+          if (source == null) {
+            await sync(Directory(projectDir), dir);
+          } else {
+            // Generated code stays, so build_runner only redoes what changed.
+            await sync(source.tree, dir, keep: RefSource.isGenerated);
+          }
           rewriteExternalPathDependencies(dir.path);
         } catch (e) {
           ws.release();
@@ -155,23 +166,26 @@ class WorkspaceManager {
 
   /// Makes [dest] match [source], copying only changed files (by size and
   /// modification time) and deleting files that no longer exist, except the
-  /// preserved build caches.
-  static Future<void> sync(Directory source, Directory dest) async {
-    await _syncDir(source, dest, '');
+  /// preserved build caches and files [keep] accepts.
+  static Future<void> sync(Directory source, Directory dest,
+      {bool Function(String rel)? keep}) async {
+    await _syncDir(source, dest, '', keep);
   }
 
-  static bool _isPreserved(String rel) =>
+  /// Build outputs and caches each workspace keeps for itself, by path
+  /// relative to the project (`ios/Pods`).
+  static bool isPreserved(String rel) =>
       _preserved.contains(rel) || _ignoredNames.contains(p.basename(rel));
 
-  static Future<void> _syncDir(
-      Directory source, Directory dest, String rel) async {
+  static Future<void> _syncDir(Directory source, Directory dest, String rel,
+      bool Function(String rel)? keep) async {
     dest.createSync(recursive: true);
     final seen = <String>{};
 
     for (final entity in source.listSync(followLinks: false)) {
       final name = p.basename(entity.path);
       final childRel = rel.isEmpty ? name : '$rel/$name';
-      if (_isPreserved(childRel)) continue;
+      if (isPreserved(childRel)) continue;
       seen.add(name);
       final target = p.join(dest.path, name);
 
@@ -191,7 +205,7 @@ class WorkspaceManager {
             FileSystemEntity.isLinkSync(target)) {
           _deleteAny(target);
         }
-        await _syncDir(entity, Directory(target), childRel);
+        await _syncDir(entity, Directory(target), childRel, keep);
       } else if (entity is File) {
         final srcStat = entity.statSync();
         final dstType = FileSystemEntity.typeSync(target, followLinks: false);
@@ -210,9 +224,29 @@ class WorkspaceManager {
     for (final entity in dest.listSync(followLinks: false)) {
       final name = p.basename(entity.path);
       final childRel = rel.isEmpty ? name : '$rel/$name';
-      if (seen.contains(name) || _isPreserved(childRel)) continue;
+      if (seen.contains(name) || isPreserved(childRel)) continue;
+      if (keep != null && keep(childRel)) continue;
+      if (keep != null && entity is Directory) {
+        _prune(entity, childRel, keep); // part of it may be kept
+        continue;
+      }
       _deleteAny(entity.path);
     }
+  }
+
+  /// Deletes [dir]'s contents except what [keep] accepts, and [dir] itself
+  /// if nothing is left.
+  static void _prune(Directory dir, String rel, bool Function(String) keep) {
+    for (final entity in dir.listSync(followLinks: false)) {
+      final childRel = '$rel/${p.basename(entity.path)}';
+      if (keep(childRel)) continue;
+      if (entity is Directory) {
+        _prune(entity, childRel, keep);
+      } else {
+        _deleteAny(entity.path);
+      }
+    }
+    if (dir.listSync().isEmpty) dir.deleteSync();
   }
 
   static void _deleteAny(String path) {

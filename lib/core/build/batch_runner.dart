@@ -10,6 +10,7 @@ import '../exceptions.dart';
 import 'build_plan.dart';
 import 'progress.dart';
 import 'progress_view.dart';
+import 'ref_source.dart';
 import 'target_result.dart';
 import 'workspaces.dart';
 
@@ -31,6 +32,7 @@ class BatchRunner {
     required this.useWorkspaces,
     this.failFast = false,
     this.progressFile,
+    this.source,
   }) : workspaces = WorkspaceManager(projectDir);
 
   final String projectDir;
@@ -41,6 +43,9 @@ class BatchRunner {
   final bool failFast;
   final String? progressFile;
   final WorkspaceManager workspaces;
+
+  /// Build this ref's files instead of the project's (needs [useWorkspaces]).
+  final RefSource? source;
 
   final _processes = <Process>{};
   Timer? _forceQuit;
@@ -167,7 +172,9 @@ class BatchRunner {
     var results = <TargetResult>[];
 
     try {
-      if (useWorkspaces) workspace = await workspaces.acquire(job.platform);
+      if (useWorkspaces) {
+        workspace = await workspaces.acquire(job.platform, source: source);
+      }
       final dir = workspace?.path ?? projectDir;
 
       final command = [

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Build Client… and Build Multiple Clients… ask what to build from: the
+  working copy, as before, or another branch (udara_cli 1.3.3+ `build --ref`),
+  e.g. `stable` while you work on `dev`. The branch is built in a separate
+  copy of the project, so your branch, uncommitted changes and Run Client
+  branding are left alone. The version prompt shows that branch's pubspec
+  version.
+
 ## 0.3.1
 
 - Set Up Clients… can start the new clients' `.env` and `.env_test` from an
