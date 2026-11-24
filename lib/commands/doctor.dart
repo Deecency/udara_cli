@@ -35,6 +35,7 @@ class DoctorCommand extends UdaraCommand {
 
  CHECKS:
   • Required project files (pubspec.yaml, flutter_launcher_icons.yaml)
+  • The Flutter builds use: the version pinned in .fvmrc (FVM) is installed
   • Required dev dependencies (rename, flutter_launcher_icons, splash_master)
   • flutter_dotenv dependency and the default client env asset
   • Each client's .env / .env_test presence and required keys
@@ -83,6 +84,14 @@ class DoctorCommand extends UdaraCommand {
       return;
     }
     _pass('pubspec.yaml found.');
+
+    // The Flutter that builds run (the FVM-pinned one, when there is a pin).
+    final sdk = FlutterSdk.resolve(projectDir);
+    if (sdk.isMissing) {
+      _warn(sdk.description!, fix: 'Run "${sdk.installCommand}".');
+    } else if (sdk.description != null) {
+      _pass('Builds use ${sdk.description}.');
+    }
 
     final iconsFile = File(p.join(projectDir, 'flutter_launcher_icons.yaml'));
     if (iconsFile.existsSync()) {

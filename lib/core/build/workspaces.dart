@@ -476,11 +476,16 @@ class WorkspaceManager {
   }
 
   static void _deleteAny(String path) {
-    final type = FileSystemEntity.typeSync(path, followLinks: false);
-    if (type == FileSystemEntityType.directory) {
-      Directory(path).deleteSync(recursive: true);
-    } else if (type != FileSystemEntityType.notFound) {
-      File(path).deleteSync();
+    switch (FileSystemEntity.typeSync(path, followLinks: false)) {
+      case FileSystemEntityType.directory:
+        Directory(path).deleteSync(recursive: true);
+      case FileSystemEntityType.link:
+        // Only the link: as a File, a link to a folder can't be deleted.
+        Link(path).deleteSync();
+      case FileSystemEntityType.notFound:
+        break;
+      default:
+        File(path).deleteSync();
     }
   }
 

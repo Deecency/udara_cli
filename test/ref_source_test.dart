@@ -48,6 +48,7 @@ clients/*/.env
 lib/**/*.g.dart
 pubspec.lock
 .DS_Store
+.fvm/
 ''');
     write(dir, 'pubspec.yaml', 'name: app\nversion: 1.0.0+1\n');
     write(dir, 'lib/main.dart', '// stable');
@@ -85,6 +86,8 @@ pubspec.lock
     write(dir, 'build/app.apk', 'apk');
     write(dir, '.dart_tool/cache', 'cache');
     write(dir, '.DS_Store', 'finder');
+    // ...nor FVM's links to the working copy's Flutter.
+    write(dir, '.fvm/fvm_config.json', '{"flutterSdkVersion": "3.50.0"}');
 
     final source = await prepare(dir, 'stable');
     final tree = source.tree.path;
@@ -101,6 +104,7 @@ pubspec.lock
     expect(read(tree, 'build/app.apk'), isNull);
     expect(read(tree, '.dart_tool/cache'), isNull);
     expect(read(tree, '.DS_Store'), isNull);
+    expect(read(tree, '.fvm/fvm_config.json'), isNull);
     // The working copy is untouched.
     expect(git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), 'main');
     expect(read(dir, 'lib/main.dart'), '// dev, uncommitted');

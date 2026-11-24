@@ -107,6 +107,8 @@ class RefSource {
   static const _junkNames = {
     '.DS_Store',
     '.claude',
+    // FVM's links to the working copy's Flutter: the ref's .fvmrc decides.
+    '.fvm',
     'coverage',
     'xcuserdata',
   };

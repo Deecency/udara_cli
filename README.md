@@ -226,6 +226,8 @@ Artifacts are collected in `build/udara/<client>/<client>_v<version>.<aab|apk|ip
 
 **What a build does:** validates the client → backs up everything it will touch → generates the config, copies branding assets and fonts → sets bundle id and app name, generates icons and splash → runs `after_branding` hooks → `flutter build` → checks the signing → runs `after_build` hooks → **restores the project** (always, even on failure or Ctrl+C) → records history and notifies Slack. Afterwards `git status` is exactly as before: bundle id, app name, `res/`, `Assets.xcassets`, `Info.plist`, the Xcode project and Firebase outputs included.
 
+**Flutter version:** when the project pins one with [FVM](https://fvm.app) (`.fvmrc`), udara_cli runs `flutter` and `dart` (and hooks) from FVM's copy of that version, so builds use the same Flutter as your IDE and CI whatever `flutter` is first on your PATH. A `--ref` build uses the ref's own `.fvmrc`. If the pinned version isn't installed, the build warns and uses the PATH's Flutter; `fvm install <version>` fixes that, and `doctor` checks it.
+
 **Signing check:** when no release keystore is found, Gradle can silently sign a release build with the debug key, which Play rejects. A debug-signed AAB fails the build (kept as `*.debug-signed.aab`, before any `after_build` hook sees it); a debug-signed APK only warns, since those are normal for QA.
 
 ### Batch & parallel builds
@@ -310,7 +312,7 @@ udara_cli history [--client clientA] [--limit 25] [--clear]
 udara_cli diff --client-a clientA --client-b clientB [--test] [--all]
 ```
 
-- **`doctor`** checks dependencies, env files and required keys, icon/logo paths and placeholders, `fonts.yaml`, bundle ids, hooks, generated config, secrets and leftover state. It exits non-zero on failure, so it works as a CI gate.
+- **`doctor`** checks the Flutter version (FVM pin), dependencies, env files and required keys, icon/logo paths and placeholders, `fonts.yaml`, bundle ids, hooks, generated config, secrets and leftover state. It exits non-zero on failure, so it works as a CI gate.
 - **`history`** shows recent builds from `.udara_build_history.json` (last 50, successes and failures).
 - **`diff`** compares two clients' env files and highlights the keys that differ.
 
@@ -336,6 +338,7 @@ Run `udara_cli doctor` first; it catches most problems before a build.
 
 - **Command not found:** add the pub cache to your PATH (see [Installation](#installation)).
 - **Play rejects the bundle ("signed with the wrong key"):** check `android/key.properties` uses `storeFile`, `storePassword`, `keyAlias`, `keyPassword` (or set `RELEASE_STORE_FILE` and friends in the client's `.env`/`.secrets` if your Gradle reads the root `.env`), and don't let the release `buildType` fall back to `signingConfigs.debug`.
+- **`pub get` says the SDK version is too old:** the project needs a newer Flutter than the one on your PATH. With an FVM pin (`.fvmrc`), run `fvm install <version>` and udara_cli uses it; `doctor` shows which Flutter builds use.
 - **Project still branded after a run or crash:** `udara_cli clean`.
 - **A client behaves differently:** `udara_cli diff` it against one that works.
 

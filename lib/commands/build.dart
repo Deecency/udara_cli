@@ -636,7 +636,7 @@ restored afterwards, even when a build fails. Every build is recorded in
     final teamId = envVars['DEVELOPMENT_TEAM'];
 
     // Validate udara.yaml up front so a typo fails before the long work.
-    final hooks = HooksService(projectDir);
+    final hooks = HooksService(projectDir, environment: flutterSdk.environment);
     hooks.load();
     final appConfig = AppConfigService(projectDir, config);
     final hookContext = HookContext(

@@ -14,13 +14,34 @@ abstract class UdaraCommand extends Command<void> {
 
   Directory get clientsDir => Directory(p.join(projectDir, 'clients'));
 
+  /// The Flutter that `flutter` and `dart` commands run: the one the project
+  /// pins with FVM (`.fvmrc`), when it pins one. Resolved, and reported, on
+  /// first use.
+  late final FlutterSdk flutterSdk = _resolveFlutterSdk();
+
+  FlutterSdk _resolveFlutterSdk() {
+    final sdk = FlutterSdk.resolve(projectDir);
+    final description = sdk.description;
+    if (sdk.isMissing) {
+      Logger.warning('$description Run "${sdk.installCommand}" to build '
+          'with the pinned version.');
+    } else if (sdk.root != null) {
+      Logger.info('Using $description');
+    } else if (description != null) {
+      Logger.debug('Using $description');
+    }
+    return sdk;
+  }
+
   /// Runs a shell command in the project directory with structured logging
   /// and exception contextualization.
   Future<void> runShell(String command, {String? workingDir}) async {
+    final environment = flutterSdk.environment;
     Logger.info('Running shell command: `$command`');
     try {
       await Shell(
         workingDirectory: workingDir ?? projectDir,
+        environment: environment.isEmpty ? null : environment,
       ).run(command);
     } catch (e, s) {
       throw BuildException(
