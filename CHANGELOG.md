@@ -1,3 +1,14 @@
+## 1.3.4
+
+* **FIX**:
+
+- Build workspaces no longer pile up in `~/.udara_cli/workspaces/`. Every `--ref` (each commit hash and tag too) got its own full copy of the project, 2-4 GB with its build outputs, and nothing deleted them. After every build, udara_cli now deletes workspaces no build has used for 14 days (in any project) and the workspaces of refs older than the 3 most recently built, and says how much space it freed. Workspaces a running build holds are never touched.
+- A `--ref` build deletes the ref's staged files (`ref-<name>/source`) when it ends, instead of keeping one more copy of the project per ref. The next build of that ref stages them again, as it already did.
+
+* **NEW**:
+
+- `udara_cli clean --all-workspaces` deletes the workspaces of every project on the computer. `clean --workspaces` now covers `--ref` workspaces in its description, reports the space freed, and keeps workspaces a running build is using.
+
 ## 1.3.3
 
 * **NEW**:

@@ -229,6 +229,21 @@ pubspec.lock
     expect(read(ws.path, 'lib/gone/model.dart'), isNull);
   });
 
+  test('marks the ref as used, and discards its files after the build',
+      () async {
+    final dir = makeRepo('app');
+    final source = await prepare(dir, 'stable');
+    final pool = source.tree.parent;
+    final stamp = File(p.join(pool.path, '.udara_workspace_used'));
+    expect(stamp.existsSync(), isTrue);
+    expect(WorkspaceManager.lastUsed(pool).difference(DateTime.now()).abs(),
+        lessThan(const Duration(minutes: 1)));
+
+    source.discard();
+    expect(source.tree.existsSync(), isFalse);
+    expect(pool.existsSync(), isTrue);
+  });
+
   test('pool names are safe folder names per ref', () {
     expect(RefSource.poolName('stable'), 'ref-stable');
     expect(RefSource.poolName('origin/release 2'), 'ref-origin_release_2');

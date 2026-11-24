@@ -142,6 +142,10 @@ With --ref, every job runs in such a copy, filled from that branch, tag or
 commit instead of the working copy; your branch and uncommitted changes are
 left alone.
 
+Copies keep their caches between builds. After each build, udara_cli deletes
+those not used for 14 days, and the copies of refs older than the 3 most
+recently built.
+
 Artifacts are collected in build/udara/<client>/. The project is always
 restored afterwards, even when a build fails. Every build is recorded in
 .udara_build_history.json.''';
@@ -204,23 +208,29 @@ restored afterwards, even when a build fails. Every build is recorded in
     }
 
     final List<TargetResult> results;
-    // A ref is always built in a workspace, so even one job goes through
-    // the batch runner.
-    if (jobs.length == 1 && _source == null) {
-      results = await _runSingleJob(jobs.single, estimator,
-          isTest: isTest,
-          failFast: failFast,
-          version: versions[jobs.single.client]);
-    } else {
-      results = await _runBatch(plan, jobs, estimator,
-          isTest: isTest,
-          failFast: failFast,
-          versions: versions,
-          parallel: parallel);
+    try {
+      // A ref is always built in a workspace, so even one job goes through
+      // the batch runner.
+      if (jobs.length == 1 && _source == null) {
+        results = await _runSingleJob(jobs.single, estimator,
+            isTest: isTest,
+            failFast: failFast,
+            version: versions[jobs.single.client]);
+      } else {
+        results = await _runBatch(plan, jobs, estimator,
+            isTest: isTest,
+            failFast: failFast,
+            versions: versions,
+            parallel: parallel);
+      }
+    } finally {
+      _source?.discard();
     }
 
     final resultFile = argResults!['result-file'] as String?;
     if (resultFile != null) TargetResult.writeAll(File(resultFile), results);
+    // Workers leave it to the build that started them.
+    if (resultFile == null && !_cancelled) await _pruneWorkspaces();
 
     final failed = results.where((r) => r.failed).toList();
     if (results.length > 1) {
@@ -267,6 +277,25 @@ restored afterwards, even when a build fails. Every build is recorded in
     Logger.success('Building ${source.label}. Your working copy is not used '
         'or changed.');
     return source;
+  }
+
+  /// Deletes parallel and --ref workspaces no build needs any more, so they
+  /// don't fill the disk. Never fails the build.
+  Future<void> _pruneWorkspaces() async {
+    try {
+      final removal = await WorkspaceManager(projectDir).prune();
+      if (removal.isEmpty) return;
+      final what = _count(removal.removed.length, 'old build workspace');
+      final size = removal.size == null ? '' : ' (${removal.size})';
+      Logger.info('Removed $what$size: not used for '
+          '${WorkspaceManager.maxIdle.inDays} days, or a ref older than the '
+          '${WorkspaceManager.keepRefs} most recently built.');
+      for (final path in removal.removed) {
+        Logger.debug('Removed $path');
+      }
+    } catch (e) {
+      Logger.debug('Could not remove old build workspaces: $e');
+    }
   }
 
   int _resolveParallel(String value) {

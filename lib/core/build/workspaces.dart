@@ -23,17 +23,64 @@ class Workspace {
   }
 }
 
+/// What a clean-up of workspaces deleted.
+class WorkspaceRemoval {
+  WorkspaceRemoval(this.removed, this.bytes, this.inUse);
+
+  /// The folders deleted.
+  final List<String> removed;
+
+  /// The disk space they used, when it could be measured.
+  final int? bytes;
+
+  /// Workspaces kept because a running build holds them.
+  final int inUse;
+
+  bool get isEmpty => removed.isEmpty;
+
+  /// "5.1 GB", or null when unknown.
+  String? get size => bytes == null ? null : formatSize(bytes!);
+
+  static String formatSize(int bytes) {
+    const units = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+    var value = bytes.toDouble();
+    var unit = 0;
+    while (value >= 1000 && unit < units.length - 1) {
+      value /= 1000;
+      unit++;
+    }
+    return unit == 0
+        ? '$bytes bytes'
+        : '${value.toStringAsFixed(value < 10 ? 1 : 0)} ${units[unit]}';
+  }
+}
+
 /// Manages the per-project pool of build workspaces under
 /// `~/.udara_cli/workspaces/`. They live outside the project so IDEs don't
 /// index them, and they persist between runs so `build/`, Gradle and
 /// CocoaPods caches stay warm. Each is synced from the project before use,
 /// so uncommitted changes are built too.
+///
+/// Every --ref has workspaces of its own, so they add up: [prune] deletes
+/// the ones not used for [maxIdle] and the refs beyond the [keepRefs] most
+/// recently built.
 class WorkspaceManager {
-  WorkspaceManager(this.projectDir);
+  /// [home] replaces the user's home folder (for tests).
+  WorkspaceManager(this.projectDir, {String? home}) : _homeOverride = home;
 
   final String projectDir;
+  final String? _homeOverride;
+
+  /// How many refs keep their workspaces.
+  static const keepRefs = 3;
+
+  /// Workspaces not used for this long are deleted.
+  static const maxIdle = Duration(days: 14);
 
   static const _lockName = '.udara_workspace.lock';
+
+  /// Written each time a build uses a workspace or a ref's set of them.
+  static const _usedName = '.udara_workspace_used';
 
   /// Never copied into a workspace, and never deleted from it: build
   /// outputs and caches that each workspace keeps for itself.
@@ -56,20 +103,26 @@ class WorkspaceManager {
     'android/.kotlin',
     'android/app/.cxx',
     _lockName,
+    _usedName,
   };
 
   static const _ignoredNames = {'.DS_Store'};
 
-  static String get _home =>
+  String get _home =>
+      _homeOverride ??
       Platform.environment['HOME'] ??
       Platform.environment['USERPROFILE'] ??
       Directory.systemTemp.path;
 
+  /// `~/.udara_cli/workspaces`: every project's workspaces.
+  Directory get allRoots =>
+      Directory(p.join(_home, '.udara_cli', 'workspaces'));
+
   /// `~/.udara_cli/workspaces/<project>-<hash of its path>`.
   Directory get root {
     final abs = p.canonicalize(projectDir);
-    return Directory(p.join(_home, '.udara_cli', 'workspaces',
-        '${p.basename(abs)}-${_fnv1a(abs)}'));
+    return Directory(
+        p.join(allRoots.path, '${p.basename(abs)}-${_fnv1a(abs)}'));
   }
 
   /// Parallel builds can't run in a pub workspace member: the copy would lose
@@ -100,6 +153,8 @@ class WorkspaceManager {
       final lock = File(p.join(dir.path, _lockName));
       if (_tryLock(lock)) {
         final ws = Workspace(dir, lock);
+        markUsed(dir);
+        if (source != null) markUsed(pool);
         try {
           if (source == null) {
             await sync(Directory(projectDir), dir);
@@ -120,11 +175,182 @@ class WorkspaceManager {
     }
   }
 
-  /// Deletes every workspace for this project.
-  Future<bool> removeAll() async {
-    if (!root.existsSync()) return false;
-    await root.delete(recursive: true);
-    return true;
+  /// Deletes this project's workspaces, or with [allProjects] every
+  /// project's, except those a running build holds.
+  Future<WorkspaceRemoval> removeAll({bool allProjects = false}) async {
+    final roots = allProjects ? _children(allRoots) : [root];
+    final doomed = <Directory>[];
+    var inUse = 0;
+    for (final projectRoot in roots.where((d) => d.existsSync())) {
+      var kept = false;
+      for (final entry in _children(projectRoot)) {
+        if (_isRefPool(entry)) {
+          if (!_poolInUse(entry)) {
+            doomed.add(entry);
+            continue;
+          }
+          // A running build of this ref keeps its workspaces and the ref's
+          // files, which its next jobs sync from.
+          kept = true;
+          for (final ws in _children(entry)) {
+            if (p.basename(ws.path) == RefSource.sourceName) continue;
+            if (_heldByRunningBuild(ws)) {
+              inUse++;
+            } else {
+              doomed.add(ws);
+            }
+          }
+        } else if (_heldByRunningBuild(entry)) {
+          inUse++;
+          kept = true;
+        } else {
+          doomed.add(entry);
+        }
+      }
+      if (!kept) doomed.add(projectRoot);
+    }
+    return _delete(doomed, inUse: inUse);
+  }
+
+  /// Deletes workspaces of any project that no build has used for
+  /// [maxIdle], and this project's refs beyond the [keepRefs] most recently
+  /// built, except those a running build holds. Run after a build, so the
+  /// workspaces it used count as the most recent.
+  Future<WorkspaceRemoval> prune({DateTime? now}) async {
+    final cutoff = (now ?? DateTime.now()).subtract(maxIdle);
+    bool idle(Directory dir) => lastUsed(dir).isBefore(cutoff);
+
+    final doomed = <Directory>[];
+    var inUse = 0;
+    final ownRoot = p.canonicalize(root.path);
+
+    for (final projectRoot in _children(allRoots)) {
+      final entries = _children(projectRoot);
+      final pools = entries.where(_isRefPool).toList()
+        ..sort((a, b) => lastUsed(b).compareTo(lastUsed(a)));
+      final surplus = p.canonicalize(projectRoot.path) == ownRoot
+          ? pools.skip(keepRefs).toSet()
+          : <Directory>{};
+
+      var left = 0;
+      for (final entry in entries) {
+        if (_isRefPool(entry)) {
+          if (surplus.contains(entry) || idle(entry)) {
+            if (_poolInUse(entry)) {
+              inUse++;
+              left++;
+            } else {
+              doomed.add(entry);
+            }
+            continue;
+          }
+          // A recent ref: only its workspaces for a platform it hasn't
+          // been built for lately.
+          left++;
+          for (final ws in _children(entry)) {
+            if (p.basename(ws.path) == RefSource.sourceName) continue;
+            if (!idle(ws)) continue;
+            if (_heldByRunningBuild(ws)) {
+              inUse++;
+            } else {
+              doomed.add(ws);
+            }
+          }
+        } else if (idle(entry)) {
+          if (_heldByRunningBuild(entry)) {
+            inUse++;
+            left++;
+          } else {
+            doomed.add(entry);
+          }
+        } else {
+          left++;
+        }
+      }
+      // Nothing of this project is left (it may no longer exist).
+      if (left == 0) doomed.add(projectRoot);
+    }
+    return _delete(doomed, inUse: inUse);
+  }
+
+  /// Records that a build is using [dir] (a workspace, or a ref's set).
+  static void markUsed(Directory dir) {
+    try {
+      File(p.join(dir.path, _usedName))
+          .writeAsStringSync('${DateTime.now().toIso8601String()}\n');
+    } catch (_) {}
+  }
+
+  /// When a build last used [dir]. Workspaces made before udara_cli 1.3.4
+  /// have no record and go by the folder's modification time, which their
+  /// lock file changed at every use.
+  static DateTime lastUsed(Directory dir) {
+    try {
+      final stamp = File(p.join(dir.path, _usedName));
+      if (stamp.existsSync()) return stamp.lastModifiedSync();
+      return dir.statSync().modified;
+    } catch (_) {
+      return DateTime.now(); // When in doubt, keep it.
+    }
+  }
+
+  static bool _isRefPool(Directory dir) =>
+      p.basename(dir.path).startsWith('ref-');
+
+  static List<Directory> _children(Directory dir) {
+    try {
+      return dir.listSync(followLinks: false).whereType<Directory>().toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static bool _poolInUse(Directory pool) =>
+      _children(pool).any(_heldByRunningBuild);
+
+  /// Whether a build that is still running has locked [workspace].
+  static bool _heldByRunningBuild(Directory workspace) {
+    final lock = File(p.join(workspace.path, _lockName));
+    if (!lock.existsSync()) return false;
+    final owner = int.tryParse(_readOrEmpty(lock).trim());
+    // No owner yet: a build is taking it right now.
+    return owner == null || _isAlive(owner);
+  }
+
+  /// Deletes [dirs] (outermost first), measuring the space they used.
+  static Future<WorkspaceRemoval> _delete(List<Directory> dirs,
+      {required int inUse}) async {
+    // A folder inside another one on the list goes with it.
+    final outer = dirs
+        .where((d) => !dirs.any((o) => o != d && p.isWithin(o.path, d.path)))
+        .toList();
+    final bytes = await _diskUsage(outer);
+    final removed = <String>[];
+    for (final dir in outer) {
+      try {
+        await dir.delete(recursive: true);
+        removed.add(dir.path);
+      } catch (_) {}
+    }
+    final measured =
+        removed.length == outer.length && removed.isNotEmpty ? bytes : null;
+    return WorkspaceRemoval(removed, measured, inUse);
+  }
+
+  /// Disk space used by [dirs] (`du`), or null where there is no `du`.
+  static Future<int?> _diskUsage(List<Directory> dirs) async {
+    if (dirs.isEmpty || Platform.isWindows) return null;
+    try {
+      final r = await Process.run('du', ['-sk', ...dirs.map((d) => d.path)]);
+      if (r.exitCode != 0) return null;
+      var kb = 0;
+      for (final line in r.stdout.toString().split('\n')) {
+        kb += int.tryParse(line.split(RegExp(r'\s')).first) ?? 0;
+      }
+      return kb * 1024;
+    } catch (_) {
+      return null;
+    }
   }
 
   bool _tryLock(File lock) {

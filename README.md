@@ -230,7 +230,7 @@ Artifacts are collected in `build/udara/<client>/<client>_v<version>.<aab|apk|ip
 
 ### Batch & parallel builds
 
-A batch is split into **jobs of one client on one platform** (AAB and APK share a job and its Gradle caches). With `--parallel` above 1, each job runs in its own copy of the project under `~/.udara_cli/workspaces/`, synced before every job (uncommitted changes included), so builds never touch each other or your working copy. The copies keep their build, Gradle and CocoaPods caches; `udara_cli clean --workspaces` deletes them.
+A batch is split into **jobs of one client on one platform** (AAB and APK share a job and its Gradle caches). With `--parallel` above 1, each job runs in its own copy of the project under `~/.udara_cli/workspaces/`, synced before every job (uncommitted changes included), so builds never touch each other or your working copy. The copies keep their build, Gradle and CocoaPods caches (see [Workspaces and disk space](#workspaces-and-disk-space)).
 
 - A live view shows percent, ETA (learned from your build history) and each job's step; CI logs and IDE consoles get one line per event.
 - Each job's output is in `build/udara/logs/<client>-<platform>.log`, and the summary shows the lines around any failure.
@@ -253,6 +253,22 @@ Every job runs in a private copy of the project under `~/.udara_cli/workspaces/`
 - **Your local-only files**: everything git ignores in your working copy comes along, such as client `.env`/`.env_test`/`.secrets`, keystores, `key.properties`, Firebase configs and an ignored `pubspec.lock`. Files the ref has itself are never replaced.
 - **Generated code is regenerated**: ignored generated Dart files (`*.g.dart`, `*.freezed.dart`, …) belong to your branch, so they're left out, and when the project uses `build_runner`, the build runs it for the ref after `pub get`. Generated localizations are rebuilt by `pub get`.
 - Git submodules aren't included, and the project can't be a pub workspace member.
+
+### Workspaces and disk space
+
+Each workspace is a full copy of the project plus its build outputs, often 2-4 GB. After every build, udara_cli deletes:
+
+- workspaces no build has used for **14 days**, in any project;
+- the workspaces of refs older than the **3 most recently built** in this project (every commit hash or tag you build gets a set of its own).
+
+Workspaces a running build is using are never deleted. The build prints what it removed, e.g. `Removed 2 old build workspaces (5.1 GB)`. To free the space now:
+
+```bash
+udara_cli clean --workspaces        # this project's
+udara_cli clean --all-workspaces    # every project's
+```
+
+The next parallel or `--ref` build copies the project again, so its first run is slower.
 
 ## Running a Client Locally (`whitelabel`)
 
@@ -307,7 +323,8 @@ udara_cli whitelabel --client <name> [--test] [--keep]
 udara_cli migrate-config [--apply] [--include-detected] [--force]
 udara_cli generate-config [--client <name>] [--test]  # refresh lib/udara_config.g.dart
 udara_cli clean                                    # restore the project, then flutter clean
-udara_cli clean --workspaces                       # delete parallel build workspaces
+udara_cli clean --workspaces                       # delete parallel and --ref build workspaces
+udara_cli clean --all-workspaces                   # ...of every project on this computer
 udara_cli list-clients [--json]
 udara_cli doctor | history | diff                  # see Diagnostics
 udara_cli <command> --help                         # --verbose for stack traces
