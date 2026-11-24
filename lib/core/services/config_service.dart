@@ -367,14 +367,57 @@ class ConfigService {
   }
 
   /// Project-relative paths of every file currently backed up.
+  ///
+  /// Links in the backups are never followed. Flutter links each plugin's
+  /// Swift package from `ios/Flutter/ephemeral` into the shared pub cache,
+  /// and restoring "through" such a link copied each plugin file onto
+  /// itself and then deleted it, taking `Package.swift` out of the pub
+  /// cache for every project. Flutter's build state (see [isBuildState])
+  /// is skipped too: udara_cli never backs it up, and a stale copy put
+  /// back would break the next build.
   List<String> backedUpFiles() {
     if (!_backupRoot.existsSync()) return const [];
     return _backupRoot
-        .listSync(recursive: true)
+        .listSync(recursive: true, followLinks: false)
         .whereType<File>()
         .map((f) => p.relative(f.path, from: _backupRoot.path))
+        .where((rel) => !isBuildState(rel))
         .toList()
       ..sort();
+  }
+
+  /// Whether [rel] is Flutter or Xcode build state (`.dart_tool`, `build`,
+  /// `ios/Flutter/ephemeral`, `ios/Pods`, ...): what each build workspace
+  /// keeps for itself and never takes from the project.
+  static bool isBuildState(String rel) {
+    final parts = p.split(rel);
+    for (var i = 1; i <= parts.length; i++) {
+      if (WorkspaceManager.isPreserved(p.posix.joinAll(parts.take(i)))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Whether [path] ends up outside [root] once links are followed (for
+  /// instance a plugin folder in the pub cache). Only the deepest part of
+  /// [path] that exists is resolved, since that decides where a write
+  /// lands. A broken link counts as outside.
+  static bool reachesOutside(String path, String root) {
+    var probe = p.normalize(path);
+    while (FileSystemEntity.typeSync(probe, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      final parent = p.dirname(probe);
+      if (parent == probe) return false;
+      probe = parent;
+    }
+    try {
+      final real = File(probe).resolveSymbolicLinksSync();
+      final realRoot = Directory(root).resolveSymbolicLinksSync();
+      return !(real == realRoot || p.isWithin(realRoot, real));
+    } on FileSystemException {
+      return true;
+    }
   }
 
   /// Whether a backup exists for [file].
@@ -384,13 +427,24 @@ class ConfigService {
   }
 
   /// Restores a file from its backup and deletes the backup. No-op when no
-  /// backup exists.
+  /// backup exists. Neither the backup nor the restored file is reached
+  /// through a link that leaves its folder: that would write to, and then
+  /// delete, files outside the project.
   Future<void> restoreBackup(File originalFile) async {
     final relativePath = p.relative(originalFile.path, from: projectDir);
 
     final backup = File(p.join(_backupRoot.path, relativePath));
 
-    if (!await backup.exists()) {
+    if (FileSystemEntity.typeSync(backup.path, followLinks: false) !=
+            FileSystemEntityType.file ||
+        reachesOutside(backup.path, _backupRoot.path)) {
+      return; // No backup, or a link that `clearBackups` removes as a link.
+    }
+
+    if (reachesOutside(originalFile.path, projectDir)) {
+      Logger.warning('Not restoring $relativePath: it leads outside the '
+          'project through a link.');
+      await backup.delete();
       return;
     }
 
@@ -421,10 +475,16 @@ class ConfigService {
   Future<void> removeCreatedFiles() async {
     if (!await _createdRoot.exists()) return;
 
-    await for (final entity in _createdRoot.list(recursive: true)) {
+    await for (final entity
+        in _createdRoot.list(recursive: true, followLinks: false)) {
       if (entity is! File) continue;
       final relativePath = p.relative(entity.path, from: _createdRoot.path);
       final created = File(p.join(projectDir, relativePath));
+      if (reachesOutside(created.path, projectDir)) {
+        Logger.warning('Not removing $relativePath: it leads outside the '
+            'project through a link.');
+        continue;
+      }
       if (await created.exists()) {
         Logger.info('Removing generated file: $relativePath');
         await created.delete();
