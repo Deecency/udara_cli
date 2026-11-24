@@ -46,6 +46,35 @@ void main() {
     expect(read(dst, 'ios/Pods/Pod.h'), isNull);
   });
 
+  test('removes links to folders the source no longer has', () async {
+    // E.g. FVM's .fvm/flutter_sdk, copied into a ref's workspace by 1.3.4.
+    final sdk = Directory(p.join(tmp.path, 'sdk'))..createSync();
+    write(sdk, 'bin/flutter', 'sdk');
+    for (final keep in [null, RefSource.isGenerated]) {
+      write(src, 'pubspec.yaml', 'name: app');
+      Directory(p.join(dst.path, '.fvm', 'versions'))
+          .createSync(recursive: true);
+      Link(p.join(dst.path, '.fvm', 'flutter_sdk')).createSync(sdk.path);
+      Link(p.join(dst.path, '.fvm', 'versions', '3.50.0')).createSync(sdk.path);
+      Link(p.join(dst.path, 'sdk_link')).createSync(sdk.path);
+
+      await WorkspaceManager.sync(src, dst, keep: keep);
+
+      expect(Directory(p.join(dst.path, '.fvm')).existsSync(), isFalse);
+      expect(Link(p.join(dst.path, 'sdk_link')).existsSync(), isFalse);
+      expect(read(sdk, 'bin/flutter'), 'sdk', reason: 'only the links go');
+    }
+  });
+
+  test('replaces a link to a folder with what the source has', () async {
+    final sdk = Directory(p.join(tmp.path, 'sdk'))..createSync();
+    Link(p.join(dst.path, 'tool')).createSync(sdk.path);
+    write(src, 'tool', 'now a file');
+    await WorkspaceManager.sync(src, dst);
+    expect(read(dst, 'tool'), 'now a file');
+    expect(sdk.existsSync(), isTrue);
+  });
+
   test('re-copies files the build changed in the workspace', () async {
     write(src, 'pubspec.yaml', 'name: app');
     await WorkspaceManager.sync(src, dst);

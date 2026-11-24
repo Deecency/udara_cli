@@ -1,6 +1,7 @@
 export 'build/build_plan.dart';
 export 'build/build_version.dart';
 export 'exceptions.dart';
+export 'flutter_sdk.dart';
 export 'placeholder_png.dart';
 export 'services/client_env_copy.dart';
 export 'services/config_service.dart';

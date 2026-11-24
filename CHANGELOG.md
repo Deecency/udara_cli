@@ -1,3 +1,14 @@
+## 1.3.5
+
+* **NEW**:
+
+- udara_cli follows the project's FVM pin. When `.fvmrc` (or FVM 2's `.fvm/fvm_config.json`) pins a Flutter version, `flutter` and `dart` commands and hooks run from FVM's copy of it (`~/fvm/versions/<version>`, `FVM_CACHE_PATH`, or the project's `.fvm/versions` link), so builds use the same Flutter as the IDE and CI instead of whichever `flutter` is first on the PATH. Before, a project that moved to a newer Flutter failed at `pub get` when the PATH still had an older one. A `--ref` build uses the ref's own `.fvmrc`, and the working copy's `.fvm` links are no longer copied into it. When the pinned version isn't installed, the build warns (`fvm install <version>`) and uses the PATH's Flutter, which is fine when that is the pinned version, as on CI.
+- `doctor` reports which Flutter builds use, and warns when the pinned version isn't installed.
+
+* **FIX**:
+
+- Preparing a workspace failed ("Cannot delete file ... Is a directory") when it had to remove a link to a folder that the project no longer has, such as FVM's `.fvm/flutter_sdk`. Only the link is removed now; what it points to is left alone.
+
 ## 1.3.4
 
 * **FIX**:

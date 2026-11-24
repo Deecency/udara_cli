@@ -121,7 +121,8 @@ Run "udara_cli clean" to restore the project files again.
       final teamId = envVars['DEVELOPMENT_TEAM'];
 
       // Validate udara.yaml up front so a typo fails before the long work.
-      final hooks = HooksService(projectDir);
+      final hooks =
+          HooksService(projectDir, environment: flutterSdk.environment);
       hooks.load();
       final appConfig = AppConfigService(projectDir, config);
       final generated = appConfig.settings.isGenerated;

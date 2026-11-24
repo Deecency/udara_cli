@@ -108,11 +108,14 @@ class HookContext {
 /// Each command runs through the system shell in the project root, with
 /// output streamed live. A non-zero exit stops the run (cleanup still runs).
 class HooksService {
-  HooksService(this.projectDir);
+  /// [environment] is added to every hook's, e.g. the PATH that puts the
+  /// project's Flutter first.
+  HooksService(this.projectDir, {this.environment = const {}});
 
   static const configFileName = 'udara.yaml';
 
   final String projectDir;
+  final Map<String, String> environment;
 
   File get configFile => File(p.join(projectDir, configFileName));
 
@@ -178,7 +181,7 @@ class HooksService {
     final commands = load()[point] ?? const [];
     if (commands.isEmpty) return;
 
-    final environment = context.toEnvironment(point);
+    final environment = {...this.environment, ...context.toEnvironment(point)};
     for (final command in commands) {
       Logger.info('Running ${point.key} hook: `$command`');
       final int exitCode;
