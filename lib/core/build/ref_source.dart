@@ -50,6 +50,17 @@ class RefSource {
   static String poolName(String ref) =>
       'ref-${ref.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}';
 
+  /// The folder in a ref's set of workspaces that holds its staged files.
+  static const sourceName = 'source';
+
+  /// Deletes the staged files once the build is over: the next build of
+  /// the ref stages them again anyway.
+  void discard() {
+    try {
+      if (tree.existsSync()) tree.deleteSync(recursive: true);
+    } catch (_) {}
+  }
+
   /// Generated code: never copied from the working copy (it belongs to the
   /// working copy's branch), and kept in the workspace between builds so
   /// build_runner only regenerates what changed.
@@ -142,25 +153,32 @@ class RefSource {
       );
     }
 
-    final tree = Directory(p.join(stagingRoot.path, poolName(ref), 'source'));
+    final tree = Directory(p.join(stagingRoot.path, poolName(ref), sourceName));
     if (tree.existsSync()) tree.deleteSync(recursive: true);
     tree.createSync(recursive: true);
+    // So a clean-up by another build doesn't take this ref's workspaces.
+    WorkspaceManager.markUsed(tree.parent);
 
-    // The project may be a folder inside the repository ("apps/bank/").
-    final prefix = await git.output(['rev-parse', '--show-prefix']) ?? '';
-    final treeish = prefix.isEmpty
-        ? commit
-        : '$commit:${prefix.substring(0, prefix.length - 1)}';
-    // From the top: run in a subfolder, git archive only exports that
-    // subfolder of the tree it is given.
-    await _extract(top, treeish, tree);
+    final int copied;
+    try {
+      // The project may be a folder inside the repository ("apps/bank/").
+      final prefix = await git.output(['rev-parse', '--show-prefix']) ?? '';
+      final treeish = prefix.isEmpty
+          ? commit
+          : '$commit:${prefix.substring(0, prefix.length - 1)}';
+      // From the top: run in a subfolder, git archive only exports that
+      // subfolder of the tree it is given.
+      await _extract(top, treeish, tree);
+      copied = await _addLocalFiles(git, projectDir, tree);
+    } catch (_) {
+      if (tree.existsSync()) tree.deleteSync(recursive: true);
+      rethrow;
+    }
 
     if (File(p.join(tree.path, '.gitmodules')).existsSync()) {
       notes.add('This repository has git submodules, which --ref builds '
           "don't include. Build without --ref if the app needs them.");
     }
-
-    final copied = await _addLocalFiles(git, projectDir, tree);
     if (copied > 0) {
       notes.add('Added $copied local-only file(s) from the working copy '
           '(client .env/.secrets, keystores and other git-ignored files).');
