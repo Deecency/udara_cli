@@ -1,3 +1,9 @@
+## 1.3.6
+
+* **FIX**:
+
+- Restoring a build's or `whitelabel --keep`'s backups could delete files from the shared pub cache. Flutter links each plugin's Swift package from `ios/Flutter/ephemeral` into `~/.pub-cache`, and when such a link was in `.udara/backups` the restore followed it, copied each plugin file onto itself and then deleted it. Plugins lost their `Package.swift`, and iOS builds of every project on the computer fell back to CocoaPods ("The following plugins do not support Swift Package Manager"). Restore and clean-up now never follow links, never write or delete outside the project, and skip Flutter's build state (`.dart_tool`, `build`, `ios/Flutter/ephemeral`, `ios/Pods`, ...), which udara_cli never backs up and which would be stale if put back. To repair a pub cache that lost files, delete the affected package folders under `~/.pub-cache/hosted/pub.dev` and run `flutter pub get`.
+
 ## 1.3.5
 
 * **NEW**:
