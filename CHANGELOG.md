@@ -1,3 +1,9 @@
+## 1.3.7
+
+* **FIX**:
+
+- A build or `whitelabel --keep` (the extensions' Run Client) could replace the project's `pubspec.lock` with a freshly upgraded one. Backups kept `pubspec.yaml` under its own name in `.udara/backups/`, so VS Code's Flutter extension took that folder for a package of its own and ran `flutter pub get` there. On restore, the upgraded `pubspec.lock`, plugin registrants and `local.properties` it wrote there were put back over the project's, and the next build regenerated `GeneratedPluginRegistrant.java` and `Package.resolved` from the upgraded lock. Backups are now saved as `<file>.udara-backup`, so no tool mistakes them for project files, and only files udara_cli backed up are restored. Backups left by 1.3.6 and older are still restored, except files that pub, Flutter or Xcode generate (`pubspec.lock`, plugin registrants, `local.properties`, `Generated.xcconfig`, `Package.resolved`, `Podfile.lock`), which udara_cli never backs up. If your `pubspec.lock` changed this way, `git checkout pubspec.lock` and run `flutter pub get`.
+
 ## 1.3.6
 
 * **FIX**:

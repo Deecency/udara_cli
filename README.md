@@ -340,6 +340,7 @@ Run `udara_cli doctor` first; it catches most problems before a build.
 - **Play rejects the bundle ("signed with the wrong key"):** check `android/key.properties` uses `storeFile`, `storePassword`, `keyAlias`, `keyPassword` (or set `RELEASE_STORE_FILE` and friends in the client's `.env`/`.secrets` if your Gradle reads the root `.env`), and don't let the release `buildType` fall back to `signingConfigs.debug`.
 - **`pub get` says the SDK version is too old:** the project needs a newer Flutter than the one on your PATH. With an FVM pin (`.fvmrc`), run `fvm install <version>` and udara_cli uses it; `doctor` shows which Flutter builds use.
 - **Project still branded after a run or crash:** `udara_cli clean`.
+- **`pubspec.lock` upgraded after a build or Run Client (udara_cli 1.3.6 and older):** an IDE ran `pub get` in `.udara/backups` and the restore put its lock file back. Update udara_cli, then `git checkout pubspec.lock` and `flutter pub get`.
 - **A client behaves differently:** `udara_cli diff` it against one that works.
 
 Found a bug? [Open an issue](https://github.com/deecency/udara_cli/issues) with the error output (`--verbose`).

@@ -340,6 +340,29 @@ class ConfigService {
   Directory get _backupRoot => Directory(p.join(_udaraDir.path, 'backups'));
   Directory get _createdRoot => Directory(p.join(_udaraDir.path, 'created'));
 
+  /// Appended to every backup's name, so nothing under `.udara` looks like a
+  /// project file to other tools. udara_cli 1.3.6 and older kept backups
+  /// under their own names: IDEs then took `.udara/backups/pubspec.yaml` for
+  /// a Flutter package of its own and ran `pub get` there, and the fresh
+  /// `pubspec.lock` (plus plugin registrants and the like) was put back over
+  /// the project's on restore.
+  static const backupSuffix = '.udara-backup';
+
+  File _backupOf(String rel) =>
+      File(p.join(_backupRoot.path, '$rel$backupSuffix'));
+
+  /// Where udara_cli 1.3.6 and older kept the backup of [rel].
+  File _legacyBackupOf(String rel) => File(p.join(_backupRoot.path, rel));
+
+  /// The backups of [rel] that may be restored: regular files that don't
+  /// lead out of the backups folder through a link. Current layout first.
+  List<File> _backupsOf(String rel) => [_backupOf(rel), _legacyBackupOf(rel)]
+      .where((f) =>
+          FileSystemEntity.typeSync(f.path, followLinks: false) ==
+              FileSystemEntityType.file &&
+          !reachesOutside(f.path, _backupRoot.path))
+      .toList();
+
   /// Creates a backup of a file under `.udara/backups`. Returns the backup.
   Future<File> createBackup(File file) async {
     if (!file.existsSync()) {
@@ -352,9 +375,13 @@ class ConfigService {
 
     try {
       final relativePath = p.relative(file.path, from: projectDir);
-      final backupFile = File(p.join(_backupRoot.path, relativePath));
+      final backupFile = _backupOf(relativePath);
 
       await backupFile.parent.create(recursive: true);
+      // A backup in the old layout is superseded, as an overwrite was before.
+      for (final old in _backupsOf(relativePath)) {
+        if (old.path != backupFile.path) await old.delete();
+      }
 
       return await file.copy(backupFile.path);
     } catch (e, s) {
@@ -368,6 +395,10 @@ class ConfigService {
 
   /// Project-relative paths of every file currently backed up.
   ///
+  /// Only files udara_cli backed up count: those named with [backupSuffix],
+  /// and, from udara_cli 1.3.6 and older, files under their own names except
+  /// what pub, Flutter or Xcode wrote there (see [isToolOutput]).
+  ///
   /// Links in the backups are never followed. Flutter links each plugin's
   /// Swift package from `ios/Flutter/ephemeral` into the shared pub cache,
   /// and restoring "through" such a link copied each plugin file onto
@@ -377,14 +408,49 @@ class ConfigService {
   /// back would break the next build.
   List<String> backedUpFiles() {
     if (!_backupRoot.existsSync()) return const [];
-    return _backupRoot
+    final files = <String>{};
+    for (final f in _backupRoot
         .listSync(recursive: true, followLinks: false)
-        .whereType<File>()
-        .map((f) => p.relative(f.path, from: _backupRoot.path))
-        .where((rel) => !isBuildState(rel))
-        .toList()
-      ..sort();
+        .whereType<File>()) {
+      final rel = p.relative(f.path, from: _backupRoot.path);
+      if (rel.endsWith(backupSuffix)) {
+        files.add(rel.substring(0, rel.length - backupSuffix.length));
+      } else if (!isToolOutput(rel)) {
+        files.add(rel);
+      }
+    }
+    return files.where((rel) => !isBuildState(rel)).toList()..sort();
   }
+
+  /// Whether [rel] is a file that pub, Flutter or Xcode write when they
+  /// treat a folder as a Flutter project: the lock file, plugin
+  /// registrants, `local.properties`, `Generated.xcconfig`, ... udara_cli
+  /// never backs these up, so one found in the backups was written there by
+  /// an IDE and is never put back over the project's.
+  static bool isToolOutput(String rel) {
+    final path = p.posix.joinAll(p.split(rel));
+    final name = p.posix.basename(path);
+    return _toolOutputNames.contains(name) ||
+        _toolOutputPaths.contains(path) ||
+        name.startsWith('GeneratedPluginRegistrant.') ||
+        name.startsWith('generated_plugin_registrant.');
+  }
+
+  static const _toolOutputNames = {
+    'pubspec.lock',
+    '.packages',
+    'package_config.json',
+    'Package.resolved',
+    'Podfile.lock',
+    'generated_plugins.cmake',
+  };
+
+  static const _toolOutputPaths = {
+    'android/local.properties',
+    'ios/Flutter/Generated.xcconfig',
+    'ios/Flutter/flutter_export_environment.sh',
+    'macos/Flutter/ephemeral/Flutter-Generated.xcconfig',
+  };
 
   /// Whether [rel] is Flutter or Xcode build state (`.dart_tool`, `build`,
   /// `ios/Flutter/ephemeral`, `ios/Pods`, ...): what each build workspace
@@ -423,7 +489,8 @@ class ConfigService {
   /// Whether a backup exists for [file].
   bool hasBackup(File file) {
     final relativePath = p.relative(file.path, from: projectDir);
-    return File(p.join(_backupRoot.path, relativePath)).existsSync();
+    return _backupOf(relativePath).existsSync() ||
+        _legacyBackupOf(relativePath).existsSync();
   }
 
   /// Restores a file from its backup and deletes the backup. No-op when no
@@ -433,25 +500,25 @@ class ConfigService {
   Future<void> restoreBackup(File originalFile) async {
     final relativePath = p.relative(originalFile.path, from: projectDir);
 
-    final backup = File(p.join(_backupRoot.path, relativePath));
-
-    if (FileSystemEntity.typeSync(backup.path, followLinks: false) !=
-            FileSystemEntityType.file ||
-        reachesOutside(backup.path, _backupRoot.path)) {
-      return; // No backup, or a link that `clearBackups` removes as a link.
-    }
+    // None, or only a link that `clearBackups` removes as a link.
+    final backups = _backupsOf(relativePath);
+    if (backups.isEmpty) return;
 
     if (reachesOutside(originalFile.path, projectDir)) {
       Logger.warning('Not restoring $relativePath: it leads outside the '
           'project through a link.');
-      await backup.delete();
+      for (final backup in backups) {
+        await backup.delete();
+      }
       return;
     }
 
     try {
       await originalFile.parent.create(recursive: true);
-      await backup.copy(originalFile.path);
-      await backup.delete();
+      await backups.first.copy(originalFile.path);
+      for (final backup in backups) {
+        await backup.delete();
+      }
     } catch (e, s) {
       throw BuildException(
         'Failed to restore backup for "${originalFile.path}"',
